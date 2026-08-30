@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+from pathlib import Path
 
 from PIL import Image
 
@@ -103,3 +104,25 @@ async def test_home_dashboard_rejects_private_favorite(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="Private"):
         await session.update_favorites([Favorite("Router", "http://192.168.1.1/")])
+
+
+def test_personal_profile_is_preserved_while_private_profile_is_removed(tmp_path: Path) -> None:
+    personal = tmp_path / "edge-personal"
+    personal.mkdir()
+    personal_session = ChromeSession(
+        640,
+        480,
+        browser_mode="edge-personal",
+        profile_dir=personal,
+    )
+    personal_session._profile_dir = personal
+    personal_session._delete_profile_on_close = False
+    personal_session._remove_profile_directory()
+    assert personal.exists()
+
+    private = tmp_path / "temporary"
+    private.mkdir()
+    private_session = ChromeSession(640, 480)
+    private_session._profile_dir = private
+    private_session._remove_profile_directory()
+    assert not private.exists()

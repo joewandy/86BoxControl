@@ -38,3 +38,14 @@ def test_live_linux_runtime_is_rejected() -> None:
 def test_native_runtimes_are_accepted() -> None:
     ensure_supported_runtime("win32")
     ensure_supported_runtime("darwin")
+
+
+def test_installed_windows_python_defeats_redirected_local_app_data() -> None:
+    paths = runtime_paths(
+        platform_name="win32",
+        environ={"LOCALAPPDATA": r"C:\Redirected\Package"},
+        home=Path(r"C:\Users\Joe"),
+        executable=Path("/uv-managed/python.exe"),
+        prefix=Path("/native/RetroBridge98/venv"),
+    )
+    assert paths.application_support == Path("/native/RetroBridge98")

@@ -22,10 +22,13 @@ from urllib.parse import urlsplit
 from PIL import Image
 import psutil
 
+from .browser_discovery import profile_processes
+from .config import BrowserMode
 from .downloads import DownloadHistory
 from .egress import PublicSocksProxy
 from .fixtures import SELF_TEST_ORIGIN, fixture_for_url
 from .policy import NavigationBlocked, resolve_public_host, validate_navigation_url
+from .platforms import secure_directory
 from .protocol import (
     ClipboardAction,
     DialogKind,
@@ -128,10 +131,16 @@ class ChromeSession:
         max_download_bytes: int = 100 * 1024 * 1024,
         guard_egress: bool = True,
         download_history: DownloadHistory | None = None,
+        browser_mode: BrowserMode | str = BrowserMode.PRIVATE_CHROMIUM,
+        executable_path: Path | None = None,
+        profile_dir: Path | None = None,
     ):
         self.width = width
         self.height = height
-        self.headed = headed
+        self.browser_mode = BrowserMode(browser_mode)
+        self.headed = headed or self.browser_mode is not BrowserMode.PRIVATE_CHROMIUM
+        self.executable_path = executable_path
+        self.configured_profile_dir = profile_dir
         self.max_fps = max_fps
         self.self_test = self_test
         self.download_dir = download_dir
@@ -159,6 +168,8 @@ class ChromeSession:
         self._download_tasks: set[asyncio.Task[None]] = set()
         self._egress: PublicSocksProxy | None = None
         self._profile_dir: Path | None = None
+        self._delete_profile_on_close = True
+        self._baseline_profile_pids: set[int] = set()
         self._restoring_safe_page = False
 
     @property
@@ -170,10 +181,11 @@ class ChromeSession:
 
         launch_arguments = [
             "--disable-extensions",
-            "--disable-sync",
             "--no-first-run",
             "--force-webrtc-ip-handling-policy=disable_non_proxied_udp",
         ]
+        if self.browser_mode is BrowserMode.PRIVATE_CHROMIUM:
+            launch_arguments.append("--disable-sync")
         if self.guard_egress:
             self._egress = PublicSocksProxy()
             await self._egress.start()
@@ -183,22 +195,45 @@ class ChromeSession:
                     "--proxy-bypass-list=<-loopback>",
                 ]
             )
+        if self.browser_mode is BrowserMode.PRIVATE_CHROMIUM:
+            self._profile_dir = Path(tempfile.mkdtemp(prefix="retrobridge98-chrome-"))
+            self._delete_profile_on_close = True
+        else:
+            if self.executable_path is None or not self.executable_path.is_file():
+                raise RuntimeError("Selected personal browser is no longer installed")
+            if self.configured_profile_dir is None:
+                raise RuntimeError("Selected personal browser has no dedicated profile directory")
+            self._profile_dir = self.configured_profile_dir
+            secure_directory(self._profile_dir.parent)
+            secure_directory(self._profile_dir)
+            active = profile_processes(self._profile_dir)
+            if active:
+                raise RuntimeError(
+                    "The dedicated personal browser profile is already open; close it and try again"
+                )
+            self._delete_profile_on_close = False
+        self._baseline_profile_pids = set(profile_processes(self._profile_dir))
         self._playwright = await async_playwright().start()
-        self._profile_dir = Path(tempfile.mkdtemp(prefix="retrobridge98-chrome-"))
         launch_options: dict[str, Any] = {
             "user_data_dir": str(self._profile_dir),
             "headless": not self.headed,
             "args": launch_arguments,
             "viewport": {"width": self.width, "height": self.height},
             "accept_downloads": self.download_dir is not None,
-            "service_workers": "block",
+            "service_workers": (
+                "block"
+                if self.browser_mode is BrowserMode.PRIVATE_CHROMIUM
+                else "allow"
+            ),
         }
         if not self.headed:
             # Playwright hides scrollbars in headless Chromium by default. The
             # guest streams only the rendered viewport, so keep Chromium's
             # native scrollbar visible and draggable inside that frame.
             launch_options["ignore_default_args"] = ["--hide-scrollbars"]
-        if self.headed:
+        if self.browser_mode is not BrowserMode.PRIVATE_CHROMIUM:
+            launch_options["executable_path"] = str(self.executable_path)
+        elif self.headed:
             # Native headed diagnostics use the user's stable Chrome. Normal
             # managed operation uses Playwright's isolated headless Chromium.
             launch_options["channel"] = "chrome"
@@ -233,7 +268,12 @@ class ChromeSession:
             await self._page.goto(SELF_TEST_ORIGIN, wait_until="domcontentloaded")
         else:
             await self._show_home()
-        self._put_status(StatusKind.INFO, "Chrome renderer ready")
+        ready_name = {
+            BrowserMode.PRIVATE_CHROMIUM: "Private Chromium",
+            BrowserMode.EDGE_PERSONAL: "Microsoft Edge Personal",
+            BrowserMode.CHROME_PERSONAL: "Google Chrome Personal",
+        }[self.browser_mode]
+        self._put_status(StatusKind.INFO, f"{ready_name} renderer ready")
 
     async def _route_request(self, route: Any, request: Any) -> None:
         if self.self_test:
@@ -320,15 +360,11 @@ class ChromeSession:
     def _owned_profile_pids(self) -> list[int]:
         if self._profile_dir is None:
             return []
-        marker = f"--user-data-dir={self._profile_dir}"
-        pids: list[int] = []
-        for process in psutil.process_iter(("pid", "cmdline")):
-            try:
-                if marker in " ".join(process.info["cmdline"] or ()):
-                    pids.append(int(process.info["pid"]))
-            except (psutil.NoSuchProcess, psutil.AccessDenied):
-                continue
-        return pids
+        return [
+            pid
+            for pid in profile_processes(self._profile_dir)
+            if pid not in self._baseline_profile_pids
+        ]
 
     async def _terminate_profile_processes(self) -> None:
         pids = self._owned_profile_pids()
@@ -349,7 +385,7 @@ class ChromeSession:
     def _remove_profile_directory(self) -> None:
         profile = self._profile_dir
         self._profile_dir = None
-        if profile is not None:
+        if profile is not None and self._delete_profile_on_close:
             shutil.rmtree(profile, ignore_errors=True)
 
     def _put_status(self, kind: StatusKind, text: str) -> None:
@@ -414,9 +450,20 @@ class ChromeSession:
             "<div class='panel'><h2>Connection</h2>"
             f"<p>Guest: RetroBridge98 {html.escape(version)}<br>Renderer: 0.3.0<br>"
             "Transport: RGB565/LZ4</p></div></div>"
-            "<p class='footer'>Modern pages use a disposable isolated Chromium profile on the host. "
-            "Downloads stay in the host inbox. Do not enter sensitive credentials.</p>"
+            f"<p class='footer'>{self._profile_disclosure()} Downloads stay in the host inbox.</p>"
             "</div></div></div></body></html>"
+        )
+
+    def _profile_disclosure(self) -> str:
+        if self.browser_mode is BrowserMode.PRIVATE_CHROMIUM:
+            return (
+                "Modern pages use a disposable isolated Chromium profile on the host. "
+                "Do not enter sensitive credentials."
+            )
+        name = "Edge" if self.browser_mode is BrowserMode.EDGE_PERSONAL else "Chrome"
+        return (
+            f"Modern pages use your dedicated persistent RetroBridge98 {name} profile. "
+            "Complete sign-in and authentication in the visible host browser window."
         )
 
     async def _show_home(self) -> None:

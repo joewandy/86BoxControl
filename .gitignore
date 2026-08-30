@@ -13,6 +13,8 @@ output/
 __pycache__/
 .pytest_cache/
 *.pyc
+**/bin/
+**/obj/
 *.token
 guest/windows98/retrobridge98/retrobridge.ini
 guest/windows98/retrobridge98/*.exe

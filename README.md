@@ -3,7 +3,7 @@
 86BoxControl is a reusable cross-platform toolkit for preparing, installing,
 organizing, and validating DOS and Windows 98 software in an
 [86Box](https://86box.net/) virtual machine. It also contains RetroBridge98, a
-native Windows 98 browser whose pages are rendered by an isolated modern Chromium
+native Windows 98 browser whose pages are rendered by an isolated modern browser
 process on a native Windows or macOS host.
 
 This is not an 86Box fork or a prebuilt virtual machine. The repository contains
@@ -15,7 +15,7 @@ media, generated images, content collections, or pairing secrets.
 
 | Path | Purpose |
 | --- | --- |
-| `host/` | Linux/macOS build tools plus the native Windows RetroBridge installer. |
+| `host/` | Linux/macOS build tools plus the native Windows RetroBridge installer and WPF settings application. |
 | `guest/windows98/` | Windows Script Host and Autorun templates for installers, shortcuts, organization, file-copy workflows, and guest-written verification receipts. |
 | `guest/windows98/retrobridge98/` | Native Win32 RetroBridge98 client, installer, resources, and protocol code. |
 | `guest/dos/` | Small DOS installer and application launcher templates. |
@@ -48,6 +48,10 @@ configured for another host address. See
 [`docs/WINDOWS-WSL.md`](docs/WINDOWS-WSL.md) for the verified Windows 6.0
 layout and the exact development/runtime boundary.
 
+Building the Windows settings application also requires the .NET 10 SDK in
+WSL. The published application is self-contained, so the target Windows user
+does not need a separate .NET installation.
+
 Codex Desktop is optional and is needed only for the helpers under `codex/`.
 
 ## Get started
@@ -69,16 +73,19 @@ uv run pytest
 
 RetroBridge98 runs a native application inside Windows 98. The guest sends
 addresses and input over one authenticated TCP connection. The native host
-renders public web pages in a disposable Chromium profile and streams compressed
-frames back to the guest. Internet Explorer, WRP, Browservice, guest Python,
-and guest proxy settings are not required.
+renders public web pages and streams compressed frames back to the guest. The
+safe default is a disposable bundled Chromium profile. Optional Edge Personal
+and Chrome Personal modes use separate, visible, RetroBridge-owned persistent
+profiles; they never reuse the user's default browser profile. Internet
+Explorer, WRP, Browservice, guest Python, and guest proxy settings are not
+required.
 
 ### Build in WSL and install the Windows host
 
 From the repository root:
 
 ```sh
-host/build-windows-wheel.sh
+host/build-windows-settings.sh
 host/build-retrobridge-guest.sh
 ```
 
@@ -87,7 +94,8 @@ WSL is supported; running Windows Python against the WSL source tree is not.
 
 ```powershell
 pwsh -ExecutionPolicy Bypass -File \\wsl.localhost\Ubuntu\home\joewandy\Work\git\86BoxControl\host\install-windows-host.ps1 `
-  -WheelPath \\wsl.localhost\Ubuntu\home\joewandy\Work\git\86BoxControl\output\windows-host\retrobridge98-0.3.0-py3-none-any.whl
+  -WheelPath \\wsl.localhost\Ubuntu\home\joewandy\Work\git\86BoxControl\output\windows-host\retrobridge98-0.3.0-py3-none-any.whl `
+  -SettingsPublishDirectory \\wsl.localhost\Ubuntu\home\joewandy\Work\git\86BoxControl\output\windows-host\settings
 $retrobridge = "$env:LOCALAPPDATA\RetroBridge98\venv\Scripts\retrobridge.exe"
 & $retrobridge pair
 & $retrobridge doctor
@@ -102,11 +110,14 @@ host/build-retrobridge-iso.sh \
 
 This workflow:
 
-1. builds and installs an OS-neutral wheel into native Windows Python 3.12;
-2. creates a native host token and matching guest INI with Windows ACLs;
-3. verifies that an isolated Chromium session can render a frame;
-4. cross-compiles `RETROBRIDGE98.EXE` for Windows 98;
-5. creates `output/retrobridge98.iso` and its SHA-256 file.
+1. tests Python and .NET, builds the wheel, and publishes the WPF application
+   self-contained for `win-x64`;
+2. installs the wheel into native Windows Python 3.12 and the complete settings
+   application below `%LOCALAPPDATA%\RetroBridge98`;
+3. creates a native host token and matching guest INI with Windows ACLs;
+4. verifies that an isolated Chromium session can render a frame;
+5. cross-compiles `RETROBRIDGE98.EXE` for Windows 98;
+6. creates `output/retrobridge98.iso` and its SHA-256 file.
 
 The default guest configuration connects to `10.0.2.2:9866`, the usual 86Box
 SLiRP host alias. For another virtual network, generate the pairing files with
@@ -141,8 +152,11 @@ the platform's native per-user data directory, and saves downloads in the
 current user's `Downloads/RetroBridge98` directory. Only one authenticated
 guest is accepted at a time.
 
-Automatic startup at login is optional and uses Task Scheduler on Windows or a
-LaunchAgent on macOS:
+On Windows, use **Start > RetroBridge98 > RetroBridge98** for launch mode and
+**RetroBridge98 Settings** for setup, browser sign-in, pairing, validation, and
+status. Missing or invalid settings open setup. Valid settings open the existing
+persistent console. Automatic startup is off on fresh installations and remains
+optional through the settings application or these CLI commands:
 
 ```powershell
 & $retrobridge autostart install
@@ -182,9 +196,11 @@ Common guest controls are:
 RetroBridge supports public HTTP/HTTPS navigation, links and forms, scrolling,
 native alert/confirm/prompt dialogs, Find, a guest-local clipboard, Favorites,
 host-side downloads, download history, and reconnection. It intentionally omits
-tabs, uploads, audio, printing, saved sessions, browser extensions, and password
-integration. Do not enter sensitive credentials through an unpatched vintage
-operating system.
+tabs, uploads, audio, printing, and browser extensions. Private Chromium does
+not save sessions or browser credentials. Personal modes can retain browser
+managed cookies and sign-in state only in their dedicated host profile; use the
+visible manual sign-in window and never enter credentials through an unpatched
+vintage operating system.
 
 ### Network model
 
@@ -192,8 +208,8 @@ The guest should be able to reach the renderer without receiving unrestricted
 direct Internet access. The exact adapter, address, and routing configuration
 depends on the selected 86Box network mode. The host renderer independently
 blocks private, loopback, link-local, metadata, and non-HTTP destinations after
-DNS resolution. Pairing files, temporary browser profiles, and runtime state
-remain local and are ignored by Git.
+DNS resolution. Pairing files, temporary and dedicated personal browser
+profiles, settings, and runtime state remain local and are ignored by Git.
 
 The complete feature list, configuration guidance, QA modes, protocol, and live
 validation checklist are in [`docs/RETROBRIDGE.md`](docs/RETROBRIDGE.md).
@@ -338,9 +354,9 @@ shortcut, receipt, or application behavior in Windows 98.
 ## Generated and private files
 
 Generated binaries, ISO and floppy images, tokens, pairing INI files, temporary
-Chrome profiles, downloads, VM disks, original software, and content collections
-do not belong in Git. The normal output paths are ignored, but always inspect
-`git status` before committing.
+and dedicated personal browser profiles, settings, downloads, VM disks, original
+software, and content collections do not belong in Git. The normal output paths
+are ignored, but always inspect `git status` before committing.
 
 ## Documentation
 

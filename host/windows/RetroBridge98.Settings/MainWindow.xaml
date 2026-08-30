@@ -1,0 +1,244 @@
+<Window x:Class="RetroBridge98.Settings.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RetroBridge98 Settings"
+        Width="920" Height="640" MinWidth="820" MinHeight="560"
+        WindowStartupLocation="CenterScreen">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <Border Grid.Column="0" Background="#102E46">
+            <Grid Margin="22">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel>
+                    <TextBlock Text="RETROBRIDGE" Foreground="#63D8D2" FontSize="12" FontWeight="Bold" />
+                    <TextBlock Text="98" Foreground="White" FontSize="38" FontWeight="Bold" Margin="0,-4,0,0" />
+                    <TextBlock Text="Modern browsing for your Windows 98 PC" Foreground="#B9D3DD" TextWrapping="Wrap" Margin="0,6,0,22" />
+                </StackPanel>
+                <StackPanel Grid.Row="1">
+                    <Button Style="{StaticResource StepButton}" Content="1  Browser" Tag="0" Click="StepButton_Click" />
+                    <Button Style="{StaticResource StepButton}" Content="2  Startup &amp; downloads" Tag="1" Click="StepButton_Click" />
+                    <Button Style="{StaticResource StepButton}" Content="3  Pairing &amp; connection" Tag="2" Click="StepButton_Click" />
+                    <Button Style="{StaticResource StepButton}" Content="4  Validation" Tag="3" Click="StepButton_Click" />
+                    <Button Style="{StaticResource StepButton}" Content="5  Verification" Tag="4" Click="StepButton_Click" />
+                </StackPanel>
+                <Border Grid.Row="3" Background="#193C55" CornerRadius="8" Padding="12">
+                    <StackPanel>
+                        <TextBlock Text="STATUS" Foreground="#8DB7C6" FontSize="10" FontWeight="Bold" />
+                        <TextBlock Text="{Binding RendererStatus}" Foreground="White" Margin="0,4,0,0" />
+                        <TextBlock Text="{Binding GuestStatus}" Foreground="#B9D3DD" FontSize="12" TextWrapping="Wrap" Margin="0,3,0,0" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <Grid Grid.Column="1" Margin="34,26,34,22">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="{Binding StepHeading}" FontSize="28" FontWeight="SemiBold" />
+                <TextBlock Text="Configure the Windows host without exposing browser or pairing secrets."
+                           Foreground="{StaticResource MutedInk}" Margin="0,5,0,18" />
+            </StackPanel>
+
+            <TabControl x:Name="StepTabs" Grid.Row="1" SelectedIndex="{Binding CurrentStep, Mode=TwoWay}"
+                        Background="Transparent" BorderThickness="0">
+                <TabControl.ItemContainerStyle>
+                    <Style TargetType="TabItem">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                    </Style>
+                </TabControl.ItemContainerStyle>
+
+                <TabItem>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="Choose how RetroBridge98 stores browser data. Personal modes always show the host browser so you can complete sign-in, CAPTCHA and two-factor authentication yourself."
+                                       TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" Margin="0,0,0,10" />
+                            <ListBox SelectedValuePath="Tag" SelectedValue="{Binding BrowserMode, Mode=TwoWay}"
+                                     BorderThickness="0" Background="Transparent" HorizontalContentAlignment="Stretch">
+                                <ListBoxItem Tag="private-chromium" HorizontalContentAlignment="Stretch">
+                                    <Border Style="{StaticResource Card}">
+                                        <StackPanel>
+                                            <TextBlock Text="Private Chromium" FontSize="17" FontWeight="SemiBold" />
+                                            <TextBlock Text="A clean disposable profile for every guest connection. Cookies and logins are removed when the session ends."
+                                                       TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" Margin="0,5,0,0" />
+                                            <TextBlock Text="Recommended default" Foreground="{StaticResource Accent}" FontWeight="SemiBold" Margin="0,7,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </ListBoxItem>
+                                <ListBoxItem Tag="edge-personal" IsEnabled="{Binding EdgeAvailable}" HorizontalContentAlignment="Stretch">
+                                    <Border Style="{StaticResource Card}">
+                                        <StackPanel>
+                                            <TextBlock Text="Microsoft Edge Personal" FontSize="17" FontWeight="SemiBold" />
+                                            <TextBlock Text="Dedicated persistent Edge profile for daily cookies, history, addresses, passwords and Edge Sync."
+                                                       TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" Margin="0,5,0,0" />
+                                            <TextBlock Text="{Binding EdgeStatus}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" Margin="0,7,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </ListBoxItem>
+                                <ListBoxItem Tag="chrome-personal" IsEnabled="{Binding ChromeAvailable}" HorizontalContentAlignment="Stretch">
+                                    <Border Style="{StaticResource Card}">
+                                        <StackPanel>
+                                            <TextBlock Text="Google Chrome Personal" FontSize="17" FontWeight="SemiBold" />
+                                            <TextBlock Text="Dedicated persistent Chrome profile for daily cookies, history, addresses, passwords and Chrome Sync."
+                                                       TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" Margin="0,5,0,0" />
+                                            <TextBlock Text="{Binding ChromeStatus}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" Margin="0,7,0,0" />
+                                        </StackPanel>
+                                    </Border>
+                                </ListBoxItem>
+                            </ListBox>
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,8,0,0">
+                                <Button Content="Open Edge sign-in" IsEnabled="{Binding EdgeAvailable}" Click="EdgeSignIn_Click" />
+                                <Button Content="Open Chrome sign-in" IsEnabled="{Binding ChromeAvailable}" Click="ChromeSignIn_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <TabItem>
+                    <StackPanel>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <CheckBox IsChecked="{Binding StartWithWindows}" FontSize="16" FontWeight="SemiBold"
+                                          Content="Start RetroBridge when Windows starts" />
+                                <TextBlock Text="Off by default. When enabled, RetroBridge uses the current validated settings through the per-user scheduled task."
+                                           Foreground="{StaticResource MutedInk}" TextWrapping="Wrap" Margin="22,5,0,0" />
+                                <TextBlock Text="{Binding AutostartStatus}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" Margin="22,8,0,0" />
+                            </StackPanel>
+                        </Border>
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="Download directory" />
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBox Text="{Binding DownloadDirectory, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Grid.Column="1" Content="Browse…" Click="BrowseDownloads_Click" />
+                        </Grid>
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="Maximum download size (MiB)" />
+                        <TextBox Width="160" HorizontalAlignment="Left" Text="{Binding MaximumDownloadMegabytes, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Style="{StaticResource FieldLabel}" Text="Renderer port" />
+                        <TextBox Width="160" HorizontalAlignment="Left" Text="{Binding Port, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Text="The settings application keeps the listener restricted to 127.0.0.1."
+                                   Foreground="{StaticResource MutedInk}" Margin="0,6,0,0" />
+                        <TextBlock Text="{Binding PortStatus}" Foreground="{StaticResource Accent}" FontWeight="SemiBold" Margin="0,6,0,0" />
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem>
+                    <StackPanel>
+                        <Border Style="{StaticResource Card}">
+                            <StackPanel>
+                                <TextBlock Text="{Binding PairingStatus}" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="Pairing uses a private random token shared only with the Windows 98 guest configuration. The token is never displayed here."
+                                           TextWrapping="Wrap" Foreground="{StaticResource MutedInk}" Margin="0,6,0,12" />
+                                <TextBlock Style="{StaticResource FieldLabel}" Text="Address used by the Windows 98 guest" />
+                                <TextBox Width="240" HorizontalAlignment="Left" Text="{Binding GuestAddress, UpdateSourceTrigger=PropertyChanged}" />
+                                <Button Content="Create pairing" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left"
+                                        IsEnabled="{Binding CanCreatePairing}"
+                                        Click="CreatePairing_Click" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" Margin="0,16,0,0">
+                            <StackPanel>
+                                <TextBlock Text="Connection status" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="{Binding RendererStatus}" Margin="0,8,0,0" />
+                                <TextBlock Text="{Binding GuestStatus}" Foreground="{StaticResource MutedInk}" Margin="0,3,0,10" />
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Content="Refresh" Click="Refresh_Click" />
+                                    <Button Content="Stop renderer" IsEnabled="{Binding RendererRunning}" Click="Stop_Click" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem>
+                    <StackPanel>
+                        <TextBlock Text="Python checks the complete configuration, selected browser and safety constraints."
+                                   Foreground="{StaticResource MutedInk}" TextWrapping="Wrap" />
+                        <Button Content="Validate configuration" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,18,0,10" Click="Validate_Click" />
+                        <ItemsControl ItemsSource="{Binding Errors}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="#FFF0EE" BorderBrush="#F1B5AE" BorderThickness="1" CornerRadius="6" Padding="10" Margin="0,3">
+                                        <TextBlock Text="{Binding Message}" Foreground="#9A2A20" TextWrapping="Wrap" />
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button Content="Save settings and verify" Style="{StaticResource PrimaryButton}" HorizontalAlignment="Left" Margin="0,16,0,0" Click="Save_Click" />
+                    </StackPanel>
+                </TabItem>
+
+                <TabItem>
+                    <StackPanel>
+                        <TextBlock Text="Final verification" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,8" />
+                        <ItemsControl ItemsSource="{Binding Checks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource Card}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="34" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <TextBlock Text="●" FontSize="20" VerticalAlignment="Center">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource Warm}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Ok}" Value="True">
+                                                                <Setter Property="Foreground" Value="{StaticResource Accent}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Grid.Column="1" Text="{Binding Message}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                            <Button Content="Refresh verification" Click="Refresh_Click" />
+                            <Button Content="Start RetroBridge98" Style="{StaticResource PrimaryButton}" IsEnabled="{Binding ReadyToLaunch}" Click="Launch_Click" />
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
+                            <Button Content="Review browser" Tag="0" Click="StepButton_Click" />
+                            <Button Content="Review network" Tag="1" Click="StepButton_Click" />
+                            <Button Content="Review pairing" Tag="2" Click="StepButton_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </TabItem>
+            </TabControl>
+
+            <ItemsControl Grid.Row="2" ItemsSource="{Binding Errors}" Margin="0,6,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding Message}" Foreground="#9A2A20" TextWrapping="Wrap" Margin="0,2" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <Grid Grid.Row="3" Margin="0,12,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <ProgressBar Width="90" Height="4" IsIndeterminate="True" Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="{StaticResource MutedInk}" Margin="10,0,0,0" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="Back" IsEnabled="{Binding CanGoBack}" Click="Back_Click" />
+                    <Button Content="Next" Style="{StaticResource PrimaryButton}" IsEnabled="{Binding CanGoNext}" Click="Next_Click" />
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

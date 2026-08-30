@@ -1,7 +1,7 @@
 # RetroBridge98
 
-RetroBridge98 is a native Windows 98 browser window backed by a disposable
-modern Chromium session on a native Windows or macOS host. The guest sends
+RetroBridge98 is a native Windows 98 browser window backed by a controlled
+modern browser session on a native Windows or macOS host. The guest sends
 addresses and input over one authenticated TCP connection; the host renders the
 page and streams 640 x 480 RGB565/LZ4 frames back. This is our own client and
 service. WRP, Browservice,
@@ -30,21 +30,28 @@ runtime.
   Help > Connection Diagnostics. Home reports the guest/renderer versions,
   transport, Favorites, and recent downloads.
 
-The deliberate omissions are tabs, saved Chrome sessions, login/password
-integration, uploads, audio, printing, browser extensions, and access to Chrome
-internal pages. Do not use the current build for sensitive credentials.
+The deliberate omissions are tabs, uploads, audio, printing, browser extensions,
+and access to browser internal pages. Private Chromium never saves sessions or
+credentials. The Windows-only personal modes can retain browser-managed login
+state in their dedicated host profiles, but authentication is completed only in
+the visible host browser. Never enter sensitive credentials through Windows 98.
 
 ## Safety boundary
 
-- The guest connects to the 86Box SLiRP host alias at `10.0.2.2:9866`. Keep the
-  service bound to `127.0.0.1` unless the VM's network mode demonstrably
-  requires a different listener.
+- The guest connects to the 86Box SLiRP host alias at `10.0.2.2:9866`. The
+  versioned settings contract and WPF application keep the service bound to
+  `127.0.0.1`; solve guest networking without widening that listener.
 - Pairing uses a random 128-bit token generated locally. The token, generated
   guest INI, build output, and VM disk are ignored by Git.
-- Every guest connection gets a new temporary Chromium profile in a private
-  directory. It does not use the normal host browser profile, cookies,
-  extensions, or stored credentials. Closing the guest or stopping the service
-  terminates the exact owned Chrome process tree and removes the profile.
+- Private Chromium gives every guest connection a temporary profile in a
+  private directory. Edge Personal and Chrome Personal use separate fixed
+  profiles below `%LOCALAPPDATA%\RetroBridge98\browser-profiles`; neither mode
+  can select or reuse a host default profile. Personal profiles are preserved,
+  while only disposable profiles are deleted.
+- Extensions remain disabled in every mode. Personal sessions are visible and
+  support a manual sign-in window without a guest. RetroBridge does not automate
+  credentials, CAPTCHA, consent, or two-factor prompts. Shutdown terminates only
+  the exact browser processes it started and never a pre-existing browser.
 - Navigation policy accepts only public `http` and `https` URLs. A loopback
   SOCKS guard independently blocks Chrome connections to loopback, private,
   link-local, metadata, and other non-public addresses, including after DNS
@@ -81,13 +88,15 @@ The verified 86Box 6.0 paths and migration notes for this PC are in
 ```sh
 uv sync --extra dev
 uv run playwright install chromium
-uv run pytest
-host/build-windows-wheel.sh
+host/build-windows-settings.sh
 host/build-retrobridge-guest.sh
 ```
 
-Install only the built wheel into native Windows Python 3.12 with
-`host/install-windows-host.ps1`. Native runtime files live below
+`host/build-windows-settings.sh` runs the full Python suite, restores and tests
+the .NET 10 solution, publishes the WPF application self-contained for
+`win-x64` without trimming, and builds the wheel. Install the wheel and complete
+publish directory into native Windows with `host/install-windows-host.ps1`.
+Native runtime files live below
 `%LOCALAPPDATA%\RetroBridge98`; 86Box, its ROMs, VM configuration, and disks
 also remain native Windows assets. Run `retrobridge pair` and
 `retrobridge doctor` from that installed environment. Pairing creates
@@ -126,11 +135,33 @@ $retrobridge = "$env:LOCALAPPDATA\RetroBridge98\venv\Scripts\retrobridge.exe"
 & $retrobridge stop
 ```
 
-The Windows installer also creates **Start > RetroBridge98 > RetroBridge98**.
-That shortcut opens a persistent console with the listener, guest endpoint,
-download directory, rotating log location, and live connection activity. Stop
-it with `Ctrl+C`, then close the console. Installing the shortcut does not
-enable the optional login service or otherwise start RetroBridge automatically.
+The WPF frontend uses the same machine-readable CLI contract as unattended
+tools. Every response has `contract_version`, `ok`, `data`, and structured
+`errors` fields:
+
+```powershell
+& $retrobridge config show --json
+Get-Content settings.json | & $retrobridge config validate --json-input -
+Get-Content settings.json | & $retrobridge config apply --json-input -
+& $retrobridge browsers detect --json
+& $retrobridge browsers sign-in --mode edge-personal
+& $retrobridge diagnostics --json
+```
+
+`settings.json` stores only the schema version, browser mode, loopback endpoint,
+guest address, download directory and limit, and startup preference. Browser
+executables and profiles are always derived by Python. Existing pairing is
+preserved and is never rotated by applying settings. Known older settings are
+backed up before migration; unknown future schemas are rejected without being
+overwritten.
+
+The Windows installer creates **Start > RetroBridge98 > RetroBridge98** and
+**RetroBridge98 Settings**. The main shortcut opens first-run setup when
+settings are missing or invalid; with valid settings it opens the persistent
+console with the listener, guest endpoint, download directory, rotating log
+location, and live connection activity. Stop that console with `Ctrl+C`.
+The Settings shortcut always opens the five-stage setup and status application.
+Installing either shortcut does not enable or start RetroBridge automatically.
 
 On macOS, run the same commands from the native checkout:
 
@@ -142,11 +173,13 @@ uv run retrobridge stop
 ```
 
 `start` refuses to create a second managed instance. `stop` terminates the
-active guest session and its isolated Chromium descendants. On Windows, state
-and logs are stored under `%LOCALAPPDATA%\RetroBridge98`; on macOS they retain
-their existing Library locations. Logs rotate at 5 MiB with three backups.
+active guest session and only the browser descendants owned by that session. On
+Windows, state and logs are stored under `%LOCALAPPDATA%\RetroBridge98`; on macOS
+they retain their existing Library locations. Logs rotate at 5 MiB with three
+backups.
 
-Opt in to a per-user login service only after normal mode is verified:
+Fresh Windows installations default to no automatic startup. Opt in through the
+settings application, or use these commands only after normal mode is verified:
 
 ```powershell
 & $retrobridge autostart install
@@ -158,16 +191,15 @@ Use `uv run retrobridge autostart ...` on macOS.
 
 Windows uses the per-user `RetroBridge98 Renderer` Task Scheduler entry; macOS
 uses the `com.retrobridge98.renderer` LaunchAgent. Both bind to loopback by
-default and use explicit arguments. Changing configuration requires `--force`
-so an existing service is not silently replaced. `retrobridge stop` leaves the
-opt-in installed but stops the current session. While autostart is installed,
-`start` uses its saved normal-mode settings and refuses headed or deterministic
-QA modes; temporarily remove autostart before running those modes.
+default and use explicit arguments. Applying Windows settings reconciles the
+task in Python, rolling back the settings file or reporting an explicit partial
+failure if reconciliation fails. `retrobridge stop` leaves an enabled opt-in
+installed but stops the current session.
 
-`retrobridge serve` runs in the foreground for development. If SLiRP cannot
-reach the default loopback listener, diagnose the VM networking first. The
-last-resort `--listen 0.0.0.0` exposes the authenticated listener to other
-interfaces and should be used only with an explicit network reason.
+`retrobridge serve` runs in the foreground for development. The settings
+contract accepts only `127.0.0.1`; the UI cannot widen it. If SLiRP cannot reach
+the loopback listener, diagnose the VM networking rather than adding a firewall
+exception or exposing the service.
 
 Normal headless rendering keeps Chromium's native vertical scrollbar visible
 inside the streamed `640x480` viewport. It can be dragged or clicked from the
@@ -238,8 +270,14 @@ decode, and display stages; do not hide latency by queuing frames.
    in the host inbox.
 6. Exercise Favorite add/rename/reorder/delete and confirm Home sync, then open
    File > Download History and verify its persisted record.
-7. Exit the guest client, stop the service, and confirm no process command line
-   contains `retrobridge98-chrome-` or `playwright_chromiumdev_profile`.
+7. Verify Private Chromium removes its disposable profile. Verify Edge Personal
+   and Chrome Personal use different fixed profile directories and retain a
+   non-secret cookie marker across their own restarts.
+8. Open each personal mode's manual sign-in window without entering real
+   credentials. Reproduce a locked dedicated profile and confirm RetroBridge
+   reports `profile_locked` without sharing or terminating the existing browser.
+9. Exit the guest client, stop the service, and confirm no owned Chrome or Edge
+   process references a RetroBridge temporary or personal profile directory.
 
 ## Protocol
 

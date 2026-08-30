@@ -21,6 +21,9 @@ class RuntimePaths:
     guest_ini_file: Path
     download_directory: Path
     autostart_config_file: Path
+    settings_file: Path
+    connection_state_file: Path
+    browser_profile_directory: Path
 
 
 def host_kind(platform_name: str | None = None) -> str:
@@ -37,6 +40,8 @@ def runtime_paths(
     platform_name: str | None = None,
     environ: Mapping[str, str] | None = None,
     home: Path | None = None,
+    executable: Path | None = None,
+    prefix: Path | None = None,
 ) -> RuntimePaths:
     environ = os.environ if environ is None else environ
     home = Path.home() if home is None else home
@@ -45,8 +50,22 @@ def runtime_paths(
         support = home / "Library" / "Application Support" / "RetroBridge98"
         logs = home / "Library" / "Logs" / "RetroBridge98"
     elif kind == "windows":
+        executable = Path(sys.executable) if executable is None else executable
+        prefix = Path(sys.prefix) if prefix is None else prefix
+        installed_support = None
+        if prefix.name.casefold() == "venv" and prefix.parent.name.casefold() == "retrobridge98":
+            installed_support = prefix.parent
+        try:
+            if installed_support is None and (
+                executable.parent.name.casefold() == "scripts"
+                and executable.parent.parent.name.casefold() == "venv"
+                and executable.parent.parent.parent.name.casefold() == "retrobridge98"
+            ):
+                installed_support = executable.parent.parent.parent
+        except IndexError:
+            installed_support = None
         local_app_data = environ.get("LOCALAPPDATA")
-        support = (
+        support = installed_support or (
             Path(local_app_data) / "RetroBridge98"
             if local_app_data
             else home / "AppData" / "Local" / "RetroBridge98"
@@ -65,6 +84,9 @@ def runtime_paths(
         guest_ini_file=support / "pairing" / "retrobridge.ini",
         download_directory=home / "Downloads" / "RetroBridge98",
         autostart_config_file=support / "autostart.json",
+        settings_file=support / "settings.json",
+        connection_state_file=support / "connection.json",
+        browser_profile_directory=support / "browser-profiles",
     )
 
 

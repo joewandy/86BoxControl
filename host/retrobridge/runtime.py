@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,9 @@ LOG_FILE = PATHS.log_file
 TOKEN_FILE = PATHS.token_file
 GUEST_INI_FILE = PATHS.guest_ini_file
 DOWNLOAD_DIRECTORY = PATHS.download_directory
+SETTINGS_FILE = PATHS.settings_file
+CONNECTION_STATE_FILE = PATHS.connection_state_file
+BROWSER_PROFILE_DIRECTORY = PATHS.browser_profile_directory
 
 
 @dataclass(frozen=True)
@@ -31,6 +35,15 @@ class RuntimeState:
     token_file: str
     self_test: bool = False
     test_pattern: bool = False
+    browser_mode: str = "private-chromium"
+
+
+@dataclass(frozen=True)
+class ConnectionState:
+    listening: bool
+    connected: bool
+    peer: str | None
+    updated_at: float
 
 
 def ensure_directories() -> None:
@@ -59,9 +72,43 @@ def load_state(path: Path = STATE_FILE) -> RuntimeState | None:
             token_file=str(payload["token_file"]),
             self_test=bool(payload.get("self_test", False)),
             test_pattern=bool(payload.get("test_pattern", False)),
+            browser_mode=str(payload.get("browser_mode", "private-chromium")),
         )
     except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
         return None
+
+
+def write_connection_state(
+    *,
+    listening: bool,
+    connected: bool,
+    peer: str | None = None,
+    path: Path = CONNECTION_STATE_FILE,
+) -> None:
+    secure_directory(path.parent)
+    temporary = path.with_suffix(".tmp")
+    payload = ConnectionState(listening, connected, peer, time.time())
+    temporary.write_text(json.dumps(asdict(payload), indent=2) + "\n", encoding="utf-8")
+    secure_file(temporary)
+    os.replace(temporary, path)
+    secure_file(path)
+
+
+def load_connection_state(path: Path = CONNECTION_STATE_FILE) -> ConnectionState | None:
+    try:
+        payload: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+        return ConnectionState(
+            listening=bool(payload["listening"]),
+            connected=bool(payload["connected"]),
+            peer=None if payload.get("peer") is None else str(payload["peer"]),
+            updated_at=float(payload["updated_at"]),
+        )
+    except (FileNotFoundError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
+
+
+def clear_connection_state(path: Path = CONNECTION_STATE_FILE) -> None:
+    path.unlink(missing_ok=True)
 
 
 def process_command(pid: int) -> str:

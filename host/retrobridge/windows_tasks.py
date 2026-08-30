@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import xml.etree.ElementTree as ElementTree
 from pathlib import Path, PureWindowsPath
 
 from .platforms import PATHS, secure_directory, secure_file
@@ -100,6 +101,20 @@ def installed() -> bool:
     return _run("/Query", "/TN", TASK_NAME).returncode == 0
 
 
+def enabled() -> bool:
+    result = _run("/Query", "/TN", TASK_NAME, "/XML")
+    if result.returncode != 0:
+        return False
+    try:
+        root = ElementTree.fromstring(result.stdout)
+    except ElementTree.ParseError:
+        return False
+    for element in root.iter():
+        if element.tag.rsplit("}", 1)[-1] == "Enabled":
+            return (element.text or "").strip().casefold() == "true"
+    return True
+
+
 def running() -> bool:
     result = _run("/Query", "/TN", TASK_NAME, "/FO", "CSV", "/NH")
     if result.returncode != 0:
@@ -147,9 +162,11 @@ def install(
         raise ValueError("Task Scheduler executable must be an absolute path")
     desired = _desired_payload(program_arguments)
     existing = _load_payload(config_path)
-    if installed() and existing == desired:
-        return False
-    if installed() and not force:
+    task_installed = installed()
+    if task_installed and existing == desired:
+        if enabled():
+            return False
+    elif task_installed and not force:
         raise FileExistsError("RetroBridge Task Scheduler entry already has different settings")
     current_user = "\\".join(
         part

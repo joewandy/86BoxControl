@@ -4,6 +4,14 @@ param(
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
     [string] $WheelPath,
 
+    [Parameter(Mandatory = $true)]
+    [ValidateScript({ Test-Path -LiteralPath $_ -PathType Container })]
+    [string] $SettingsPublishDirectory,
+
+    [string] $SupportDirectory = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'RetroBridge98'),
+
+    [string] $StartMenuDirectory = (Join-Path ([Environment]::GetFolderPath('ApplicationData')) 'Microsoft\Windows\Start Menu\Programs\RetroBridge98'),
+
     [switch] $Force
 )
 
@@ -21,16 +29,25 @@ if ($uv) {
     }
 }
 
-$supportDirectory = Join-Path $env:LOCALAPPDATA 'RetroBridge98'
+$supportDirectory = [IO.Path]::GetFullPath($SupportDirectory)
+$startMenuDirectory = [IO.Path]::GetFullPath($StartMenuDirectory)
+foreach ($nativePath in @($supportDirectory, $startMenuDirectory)) {
+    if (-not [IO.Path]::IsPathRooted($nativePath) -or $nativePath.StartsWith('\\')) {
+        throw "Native installation paths must be rooted local Windows paths: $nativePath"
+    }
+}
 $environmentDirectory = Join-Path $supportDirectory 'venv'
 $packageDirectory = Join-Path $supportDirectory 'packages'
 $python = Join-Path $environmentDirectory 'Scripts\python.exe'
 $retrobridge = Join-Path $environmentDirectory 'Scripts\retrobridge.exe'
 $assetsDirectory = Join-Path $supportDirectory 'assets'
 $iconPath = Join-Path $assetsDirectory 'retrobridge98.ico'
-$startMenuDirectory = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\RetroBridge98'
 $shortcutPath = Join-Path $startMenuDirectory 'RetroBridge98.lnk'
+$settingsShortcutPath = Join-Path $startMenuDirectory 'RetroBridge98 Settings.lnk'
+$settingsDirectory = Join-Path $supportDirectory 'settings-app'
+$settingsExecutable = Join-Path $settingsDirectory 'RetroBridge98.Settings.exe'
 $resolvedWheel = (Resolve-Path -LiteralPath $WheelPath).Path
+$resolvedSettingsPublish = (Resolve-Path -LiteralPath $SettingsPublishDirectory).Path
 
 if ((Test-Path -LiteralPath $environmentDirectory) -and -not $Force) {
     throw "The Windows environment already exists at $environmentDirectory. Pass -Force to update it."
@@ -91,6 +108,30 @@ if (-not (Test-Path -LiteralPath $retrobridge -PathType Leaf)) {
     throw "RetroBridge installation did not create $retrobridge"
 }
 
+$settingsStaging = Join-Path $supportDirectory ('settings-app.new-' + [guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $settingsStaging -Force | Out-Null
+Copy-Item -Path (Join-Path $resolvedSettingsPublish '*') -Destination $settingsStaging -Recurse -Force
+$stagedSettingsExecutable = Join-Path $settingsStaging 'RetroBridge98.Settings.exe'
+if (-not (Test-Path -LiteralPath $stagedSettingsExecutable -PathType Leaf)) {
+    throw "The WPF publish directory does not contain RetroBridge98.Settings.exe: $resolvedSettingsPublish"
+}
+$settingsBackup = $null
+if (Test-Path -LiteralPath $settingsDirectory -PathType Container) {
+    $settingsBackup = Join-Path $supportDirectory ('settings-app.backup-' + [guid]::NewGuid().ToString('N'))
+    Move-Item -LiteralPath $settingsDirectory -Destination $settingsBackup
+}
+try {
+    Move-Item -LiteralPath $settingsStaging -Destination $settingsDirectory
+} catch {
+    if ($settingsBackup -and -not (Test-Path -LiteralPath $settingsDirectory)) {
+        Move-Item -LiteralPath $settingsBackup -Destination $settingsDirectory
+    }
+    throw
+}
+if ($settingsBackup -and (Test-Path -LiteralPath $settingsBackup -PathType Container)) {
+    Remove-Item -LiteralPath $settingsBackup -Recurse -Force
+}
+
 New-Item -ItemType Directory -Path $assetsDirectory -Force | Out-Null
 & $python -m retrobridge.windows_launcher $iconPath
 if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $iconPath -PathType Leaf)) {
@@ -100,15 +141,24 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $iconPath -PathType Lea
 New-Item -ItemType Directory -Path $startMenuDirectory -Force | Out-Null
 $windowsShell = New-Object -ComObject WScript.Shell
 $shortcut = $windowsShell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $env:ComSpec
-$shortcut.Arguments = '/d /k ""' + $retrobridge + '" console"'
+$shortcut.TargetPath = $settingsExecutable
+$shortcut.Arguments = '--launch'
 $shortcut.WorkingDirectory = $supportDirectory
 $shortcut.IconLocation = "$iconPath,0"
 $shortcut.Description = 'Run the RetroBridge98 host for the Windows 98 browser'
 $shortcut.Save()
 
+$settingsShortcut = $windowsShell.CreateShortcut($settingsShortcutPath)
+$settingsShortcut.TargetPath = $settingsExecutable
+$settingsShortcut.WorkingDirectory = $supportDirectory
+$settingsShortcut.IconLocation = "$iconPath,0"
+$settingsShortcut.Description = 'Configure RetroBridge98 browser, pairing, downloads, and startup'
+$settingsShortcut.Save()
+
 Write-Output "RetroBridge Windows host installed: $retrobridge"
 Write-Output "Start Menu launcher installed: $shortcutPath"
+Write-Output "Settings application installed: $settingsExecutable"
+Write-Output "Settings shortcut installed: $settingsShortcutPath"
 Write-Output 'RetroBridge will only run when launched; this installer does not enable autostart.'
 Write-Output 'Run pairing natively in PowerShell before building guest media:'
 Write-Output "  & '$retrobridge' pair"

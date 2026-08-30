@@ -55,6 +55,7 @@ class RetroBridgeServer:
         session_cleanup_timeout: float = 5.0,
         session_start_timeout: float = 20.0,
         frame_ack_timeout: float = 10.0,
+        connection_status: Callable[[bool, bool, str | None], None] | None = None,
     ):
         if len(token) != 32 or any(c not in "0123456789abcdef" for c in token):
             raise ValueError("token must be exactly 32 lowercase hexadecimal characters")
@@ -72,6 +73,7 @@ class RetroBridgeServer:
         self.session_cleanup_timeout = session_cleanup_timeout
         self.session_start_timeout = session_start_timeout
         self.frame_ack_timeout = frame_ack_timeout
+        self.connection_status = connection_status
         self._client_lock = asyncio.Lock()
         self._server: asyncio.Server | None = None
         self._client_tasks: set[asyncio.Task[Any]] = set()
@@ -79,6 +81,7 @@ class RetroBridgeServer:
 
     async def serve(self) -> None:
         self._server = await asyncio.start_server(self._handle_client, self.host, self.port)
+        self._publish_connection_status(True, False, None)
         addresses = ", ".join(str(sock.getsockname()) for sock in self._server.sockets or [])
         LOG.info("RetroBridge listening on %s", addresses)
         try:
@@ -87,6 +90,7 @@ class RetroBridgeServer:
         finally:
             self._server.close()
             await self._server.wait_closed()
+            self._publish_connection_status(False, False, None)
 
     async def shutdown(self) -> None:
         """Stop accepting guests and release every active renderer session."""
@@ -109,6 +113,17 @@ class RetroBridgeServer:
         if self._server is not None:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._server.wait_closed(), timeout=2)
+        self._publish_connection_status(False, False, None)
+
+    def _publish_connection_status(
+        self, listening: bool, connected: bool, peer: str | None
+    ) -> None:
+        if self.connection_status is None:
+            return
+        try:
+            self.connection_status(listening, connected, peer)
+        except Exception:
+            LOG.exception("Failed to publish renderer connection state")
 
     async def _handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
         task = asyncio.current_task()
@@ -135,7 +150,11 @@ class RetroBridgeServer:
                 await self._write(writer, MessageType.ERROR, b"Another guest is connected")
                 return
             async with self._client_lock:
-                await self._run_session(reader, writer, width, height, pixel_format)
+                self._publish_connection_status(True, True, str(peer))
+                try:
+                    await self._run_session(reader, writer, width, height, pixel_format)
+                finally:
+                    self._publish_connection_status(True, False, None)
         except (asyncio.IncompleteReadError, ConnectionError):
             LOG.info("Guest disconnected: %s", peer)
         except (ProtocolError, asyncio.TimeoutError) as exc:

@@ -27,4 +27,5 @@ def test_linux_autostart_is_not_misrepresented(monkeypatch) -> None:
     monkeypatch.setattr(autostart, "host_kind", lambda: "linux")
     assert not autostart.installed()
     assert not autostart.loaded()
+    assert not autostart.enabled()
     assert autostart.location() == "unsupported"

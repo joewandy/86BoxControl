@@ -31,6 +31,15 @@ def loaded() -> bool:
     return False
 
 
+def enabled() -> bool:
+    kind = host_kind()
+    if kind == "macos":
+        return launchd.installed()
+    if kind == "windows":
+        return windows_tasks.enabled()
+    return False
+
+
 def executable_is_available() -> bool:
     kind = host_kind()
     if kind == "macos":

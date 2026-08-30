@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 
 import pytest
 
@@ -6,6 +7,7 @@ from types import SimpleNamespace
 
 from retrobridge import cli
 from retrobridge.cli import build_parser, pair
+from retrobridge.config import default_settings, save_settings, settings_to_dict
 
 
 def test_pair_creates_matching_untracked_credentials(tmp_path: Path) -> None:
@@ -126,9 +128,111 @@ def test_autostart_remove_stops_a_lingering_owned_process(monkeypatch) -> None:
     assert stopped == [state]
 
 
-def test_installed_autostart_refuses_to_misrepresent_qa_mode(monkeypatch) -> None:
+def test_enabled_autostart_refuses_to_misrepresent_qa_mode(monkeypatch) -> None:
     args = build_parser().parse_args(["start", "--test-pattern"])
     monkeypatch.setattr(cli, "load_state", lambda: None)
-    monkeypatch.setattr(cli.autostart, "installed", lambda: True)
+    monkeypatch.setattr(cli.autostart, "enabled", lambda: True)
     with pytest.raises(SystemExit, match="login service owns normal renderer settings"):
         cli.start_managed(args)
+
+
+def test_machine_readable_setup_commands_are_exposed() -> None:
+    config = build_parser().parse_args(["config", "show", "--json"])
+    browsers = build_parser().parse_args(["browsers", "detect", "--json"])
+    diagnostics = build_parser().parse_args(["diagnostics", "--json"])
+    assert config.config_command == "show"
+    assert browsers.browsers_command == "detect"
+    assert diagnostics.as_json
+
+
+def test_missing_config_returns_first_run_defaults(monkeypatch, tmp_path, capsys) -> None:
+    monkeypatch.setattr(cli.autostart, "installed", lambda: False)
+    cli.show_config(tmp_path / "settings.json")
+    payload = json.loads(capsys.readouterr().out)
+    assert not payload["ok"]
+    assert payload["errors"][0]["code"] == "settings_missing"
+    assert payload["data"]["settings"]["browser"]["mode"] == "private-chromium"
+    assert not payload["data"]["settings"]["startup"]["start_with_windows"]
+
+
+def test_config_validation_is_machine_readable(monkeypatch, tmp_path, capsys) -> None:
+    payload = json.dumps(settings_to_dict(default_settings()))
+    source = tmp_path / "settings-input.json"
+    source.write_text(payload, encoding="utf-8")
+    cli.validate_config(str(source))
+    response = json.loads(capsys.readouterr().out)
+    assert response["ok"]
+    assert response["contract_version"] == 1
+
+
+def test_config_apply_keeps_fresh_autostart_off(monkeypatch, tmp_path, capsys) -> None:
+    settings_path = tmp_path / "settings.json"
+    source = tmp_path / "input.json"
+    source.write_text(json.dumps(settings_to_dict(default_settings())), encoding="utf-8")
+    monkeypatch.setattr(cli.autostart, "installed", lambda: False)
+
+    cli.apply_config(str(source), settings_path)
+
+    response = json.loads(capsys.readouterr().out)
+    assert response["ok"]
+    assert not response["data"]["settings"]["startup"]["start_with_windows"]
+    assert settings_path.is_file()
+
+
+def test_config_apply_rolls_back_when_autostart_reconciliation_fails(
+    monkeypatch, tmp_path
+) -> None:
+    settings_path = tmp_path / "settings.json"
+    save_settings(default_settings(), settings_path)
+    original = settings_path.read_bytes()
+    payload = settings_to_dict(default_settings())
+    payload["startup"]["start_with_windows"] = True  # type: ignore[index]
+    source = tmp_path / "input.json"
+    source.write_text(json.dumps(payload), encoding="utf-8")
+    monkeypatch.setattr(cli, "host_kind", lambda: "windows")
+    monkeypatch.setattr(
+        cli.autostart,
+        "install",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("scheduler unavailable")),
+    )
+
+    with pytest.raises(cli.SettingsValidationError) as raised:
+        cli.apply_config(str(source), settings_path)
+
+    assert raised.value.issues[0].code == "autostart_mismatch"
+    assert settings_path.read_bytes() == original
+
+
+def test_config_apply_never_overwrites_future_schema(monkeypatch, tmp_path) -> None:
+    settings_path = tmp_path / "settings.json"
+    future = settings_to_dict(default_settings())
+    future["schema_version"] = 99
+    original = json.dumps(future).encode()
+    settings_path.write_bytes(original)
+    source = tmp_path / "input.json"
+    source.write_text(json.dumps(settings_to_dict(default_settings())), encoding="utf-8")
+    monkeypatch.setattr(cli.autostart, "installed", lambda: False)
+
+    with pytest.raises(cli.SettingsValidationError) as raised:
+        cli.apply_config(str(source), settings_path)
+
+    assert any(issue.code == "unsupported_schema" for issue in raised.value.issues)
+    assert settings_path.read_bytes() == original
+
+
+def test_runtime_settings_resolve_saved_private_mode(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    save_settings(default_settings(), path)
+    args = build_parser().parse_args(["console", "--settings-file", str(path)])
+    selection = cli.apply_runtime_settings(args)
+    assert args.listen == "127.0.0.1"
+    assert args.browser_mode.value == "private-chromium"
+    assert not selection.persistent
+
+
+def test_json_stop_reports_already_stopped(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli, "load_state", lambda: None)
+    cli.stop_managed(as_json=True)
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"]
+    assert not payload["data"]["running"]

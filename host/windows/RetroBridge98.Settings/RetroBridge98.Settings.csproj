@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>RetroBridge98.Settings</AssemblyName>
+    <RootNamespace>RetroBridge98.Settings</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RetroBridge98.Settings.Core\RetroBridge98.Settings.Core.csproj" />
+  </ItemGroup>
+</Project>

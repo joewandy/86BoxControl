@@ -1,7 +1,14 @@
 from dataclasses import replace
 from pathlib import Path
 
-from retrobridge.runtime import RuntimeState, load_state, process_is_owned, write_state
+from retrobridge.runtime import (
+    RuntimeState,
+    load_connection_state,
+    load_state,
+    process_is_owned,
+    write_connection_state,
+    write_state,
+)
 
 
 def sample_state() -> RuntimeState:
@@ -64,3 +71,11 @@ def test_process_ownership_accepts_retrobridge_serve_and_console(monkeypatch) ->
 
     monkeypatch.setattr("retrobridge.runtime.process_command", lambda pid: "Google Chrome")
     assert not process_is_owned(42)
+
+
+def test_connection_state_round_trip_does_not_contain_credentials(tmp_path: Path) -> None:
+    path = tmp_path / "connection.json"
+    write_connection_state(listening=True, connected=True, peer="127.0.0.1", path=path)
+    state = load_connection_state(path)
+    assert state is not None and state.connected and state.peer == "127.0.0.1"
+    assert path.stat().st_mode & 0o777 == 0o600

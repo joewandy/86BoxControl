@@ -17,24 +17,49 @@ import textwrap
 import time
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 from . import autostart
 from .browser import ChromeSession, TestPatternSession
-from .platforms import ensure_supported_runtime, secure_directory, secure_file
+from .browser_discovery import (
+    BrowserSelectionError,
+    detect_browsers,
+    open_sign_in_profile,
+    resolve_browser,
+)
+from .config import (
+    BrowserMode,
+    KNOWN_OLDER_SCHEMA_VERSIONS,
+    SCHEMA_VERSION,
+    Settings,
+    SettingsIssue,
+    SettingsValidationError,
+    default_settings,
+    load_settings,
+    restore_settings_bytes,
+    save_settings,
+    settings_from_json,
+    settings_to_dict,
+)
+from .diagnostics import diagnostics as collect_diagnostics
+from .platforms import ensure_supported_runtime, host_kind, secure_directory, secure_file
 from .runtime import (
     DOWNLOAD_DIRECTORY,
     GUEST_INI_FILE,
     LOG_FILE,
+    SETTINGS_FILE,
     STATE_FILE,
     TOKEN_FILE,
     RuntimeState,
     ensure_directories,
+    clear_connection_state,
     load_state,
     process_is_owned,
     process_is_running,
     remove_state_if_owned,
     stop_owned_process,
     write_state,
+    write_connection_state,
 )
 from .server import RetroBridgeServer
 
@@ -55,6 +80,7 @@ def pair(
     force: bool,
     server: str = "10.0.2.2",
     port: int = 9866,
+    as_json: bool = False,
 ) -> None:
     try:
         server = str(ipaddress.IPv4Address(server))
@@ -85,8 +111,47 @@ def pair(
     os.replace(ini_temporary, ini_path)
     secure_file(token_path)
     secure_file(ini_path)
-    print(f"Created host token: {token_path}")
-    print(f"Created guest configuration: {ini_path}")
+    if as_json:
+        _emit_json(
+            True,
+            {
+                "token_file": str(token_path),
+                "guest_ini_file": str(ini_path),
+                "guest_server": server,
+                "guest_port": port,
+            },
+        )
+    else:
+        print(f"Created host token: {token_path}")
+        print(f"Created guest configuration: {ini_path}")
+
+
+def _emit_json(
+    ok: bool,
+    data: Any = None,
+    errors: list[SettingsIssue | dict[str, str]] | None = None,
+) -> None:
+    serialized_errors = [
+        issue.to_dict() if isinstance(issue, SettingsIssue) else issue
+        for issue in (errors or [])
+    ]
+    print(
+        json.dumps(
+            {
+                "contract_version": 1,
+                "ok": ok,
+                "data": {} if data is None else data,
+                "errors": serialized_errors,
+            },
+            sort_keys=True,
+        )
+    )
+
+
+def _json_input(source: str) -> str:
+    if source == "-":
+        return sys.stdin.read()
+    return Path(source).read_text(encoding="utf-8")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -111,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="host TCP port reachable from the Windows 98 guest",
     )
     pair_parser.add_argument("--force", action="store_true")
+    pair_parser.add_argument("--json", action="store_true", dest="as_json")
 
     serve_parser = subparsers.add_parser("serve", help="run the guest bridge")
     serve_parser.add_argument("--token-file", type=Path, default=TOKEN_FILE)
@@ -130,6 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="enable authenticated deterministic browser fixtures",
     )
     serve_parser.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)
+    serve_parser.add_argument("--settings-file", type=Path)
 
     console_parser = subparsers.add_parser(
         "console", help="run the managed renderer in a friendly visible console"
@@ -144,6 +211,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DOWNLOAD_DIRECTORY,
     )
     console_parser.add_argument("--max-download-mb", type=int, default=100)
+    console_parser.add_argument("--settings-file", type=Path)
     console_parser.set_defaults(
         managed=True,
         self_test=False,
@@ -160,6 +228,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--download-dir", type=Path, default=DOWNLOAD_DIRECTORY
     )
     start_parser.add_argument("--max-download-mb", type=int, default=100)
+    start_parser.add_argument("--settings-file", type=Path)
     start_mode = start_parser.add_mutually_exclusive_group()
     start_mode.add_argument(
         "--self-test",
@@ -171,7 +240,8 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="start the renderer-free framebuffer performance pattern",
     )
-    subparsers.add_parser("stop", help="stop the managed renderer")
+    stop_parser = subparsers.add_parser("stop", help="stop the managed renderer")
+    stop_parser.add_argument("--json", action="store_true", dest="as_json")
     status_parser = subparsers.add_parser("status", help="show managed renderer status")
     status_parser.add_argument("--json", action="store_true", dest="as_json")
     logs_parser = subparsers.add_parser("logs", help="show managed renderer logs")
@@ -197,6 +267,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     autostart_install.add_argument("--max-download-mb", type=int, default=100)
     autostart_install.add_argument("--force", action="store_true")
+    autostart_install.add_argument("--settings-file", type=Path)
     autostart_subparsers.add_parser(
         "remove", help="stop and remove the per-user login service"
     )
@@ -204,15 +275,213 @@ def build_parser() -> argparse.ArgumentParser:
         "status", help="show login-service installation status"
     )
     autostart_status.add_argument("--json", action="store_true", dest="as_json")
+
+    config_parser = subparsers.add_parser(
+        "config", help="inspect, validate, and save versioned settings"
+    )
+    config_subparsers = config_parser.add_subparsers(
+        dest="config_command", required=True
+    )
+    config_show = config_subparsers.add_parser("show")
+    config_show.add_argument("--json", action="store_true", dest="as_json")
+    config_show.add_argument("--settings-file", type=Path, default=SETTINGS_FILE)
+    for command in ("validate", "apply"):
+        config_command = config_subparsers.add_parser(command)
+        config_command.add_argument("--json-input", required=True)
+        config_command.add_argument("--settings-file", type=Path, default=SETTINGS_FILE)
+
+    browsers_parser = subparsers.add_parser(
+        "browsers", help="detect browsers and open dedicated sign-in profiles"
+    )
+    browsers_subparsers = browsers_parser.add_subparsers(
+        dest="browsers_command", required=True
+    )
+    browser_detect = browsers_subparsers.add_parser("detect")
+    browser_detect.add_argument("--json", action="store_true", dest="as_json")
+    browser_sign_in = browsers_subparsers.add_parser("sign-in")
+    browser_sign_in.add_argument(
+        "--mode",
+        required=True,
+        choices=(BrowserMode.EDGE_PERSONAL.value, BrowserMode.CHROME_PERSONAL.value),
+    )
+
+    diagnostics_parser = subparsers.add_parser(
+        "diagnostics", help="report setup and runtime readiness"
+    )
+    diagnostics_parser.add_argument("--json", action="store_true", dest="as_json")
+    diagnostics_parser.add_argument("--settings-file", type=Path, default=SETTINGS_FILE)
     return parser
+
+
+def _browser_validation_issue(settings: Settings) -> SettingsIssue | None:
+    selected = next(
+        browser for browser in detect_browsers() if browser.mode is settings.browser.mode
+    )
+    if selected.available:
+        return None
+    return SettingsIssue(
+        "browser_missing",
+        "browser.mode",
+        f"{selected.name} was not found. Install it or choose another browser.",
+    )
+
+
+def show_config(path: Path) -> None:
+    try:
+        settings = load_settings(path)
+    except SettingsValidationError as exc:
+        _emit_json(
+            False,
+            {"exists": path.is_file(), "path": str(path), "settings": None},
+            exc.issues,
+        )
+        return
+    if settings is None:
+        defaults = default_settings(start_with_windows=autostart.enabled())
+        _emit_json(
+            False,
+            {
+                "exists": False,
+                "path": str(path),
+                "settings": settings_to_dict(defaults),
+            },
+            [SettingsIssue("settings_missing", "settings", "First-run setup is required")],
+        )
+        return
+    _emit_json(
+        True,
+        {"exists": True, "path": str(path), "settings": settings_to_dict(settings)},
+    )
+
+
+def validate_config(source: str) -> Settings:
+    settings = settings_from_json(_json_input(source))
+    issue = _browser_validation_issue(settings)
+    if issue is not None:
+        raise SettingsValidationError([issue])
+    _emit_json(True, {"settings": settings_to_dict(settings)})
+    return settings
+
+
+def _configured_service_arguments(path: Path) -> list[str]:
+    return [
+        autostart.current_python(),
+        "-m",
+        "retrobridge.cli",
+        "serve",
+        "--managed",
+        "--settings-file",
+        str(path.resolve()),
+    ]
+
+
+def apply_config(source: str, path: Path) -> None:
+    settings = settings_from_json(_json_input(source))
+    issue = _browser_validation_issue(settings)
+    if issue is not None:
+        raise SettingsValidationError([issue])
+    try:
+        previous = path.read_bytes()
+    except FileNotFoundError:
+        previous = None
+    if previous is not None:
+        try:
+            existing_payload = json.loads(previous.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            existing_payload = None
+        if isinstance(existing_payload, dict):
+            existing_version = existing_payload.get("schema_version")
+            if (
+                isinstance(existing_version, int)
+                and not isinstance(existing_version, bool)
+                and existing_version != SCHEMA_VERSION
+            ):
+                # Known legacy documents are backed up and migrated by the loader.
+                # Unknown versions are rejected here so Apply can never replace a
+                # document created by a newer or unsupported RetroBridge version.
+                if existing_version in KNOWN_OLDER_SCHEMA_VERSIONS:
+                    load_settings(path)
+                    previous = path.read_bytes()
+                else:
+                    settings_from_json(previous.decode("utf-8"))
+    save_settings(settings, path)
+    try:
+        if settings.startup.start_with_windows:
+            if host_kind() == "linux":
+                raise RuntimeError("Windows startup cannot be configured from Linux")
+            autostart.install(
+                _configured_service_arguments(path),
+                working_directory=path.parent,
+                force=True,
+            )
+        elif autostart.installed():
+            autostart.remove()
+    except Exception as exc:
+        restore_settings_bytes(previous, path)
+        raise SettingsValidationError(
+            [
+                SettingsIssue(
+                    "autostart_mismatch",
+                    "startup.start_with_windows",
+                    f"Settings were not applied because Windows startup could not be updated: {exc}",
+                )
+            ]
+        ) from exc
+    _emit_json(
+        True,
+        {
+            "path": str(path),
+            "settings": settings_to_dict(settings),
+            "autostart_installed": autostart.installed(),
+        },
+    )
+
+
+def show_browsers() -> None:
+    _emit_json(True, {"browsers": [browser.to_dict() for browser in detect_browsers()]})
+
+
+def sign_in_browser(mode: str) -> None:
+    browser_mode = BrowserMode(mode)
+    open_sign_in_profile(browser_mode)
+    _emit_json(True, {"mode": browser_mode.value, "closed": True})
+
+
+def show_diagnostics(path: Path) -> None:
+    _emit_json(True, collect_diagnostics(path))
+
+
+def apply_runtime_settings(args: argparse.Namespace) -> object:
+    settings_path = getattr(args, "settings_file", None)
+    if settings_path is None:
+        args.browser_mode = BrowserMode.PRIVATE_CHROMIUM
+        return resolve_browser(BrowserMode.PRIVATE_CHROMIUM)
+    try:
+        settings = load_settings(settings_path)
+    except SettingsValidationError as exc:
+        raise SystemExit(exc.issues[0].message) from exc
+    if settings is None:
+        raise SystemExit(f"Settings file not found: {settings_path}")
+    args.listen = settings.network.listen
+    args.port = settings.network.port
+    args.download_dir = Path(settings.downloads.directory)
+    args.max_download_mb = settings.downloads.max_megabytes
+    args.browser_mode = settings.browser.mode
+    try:
+        selection = resolve_browser(settings.browser.mode)
+    except BrowserSelectionError as exc:
+        raise SystemExit(str(exc)) from exc
+    args.headed = bool(args.headed or selection.headed)
+    return selection
 
 
 def start_managed(args: argparse.Namespace) -> None:
     state = load_state()
     if state is not None and process_is_running(state.pid) and process_is_owned(state.pid):
         raise SystemExit(f"RetroBridge is already running as PID {state.pid}")
-    if autostart.installed():
-        if args.self_test or args.test_pattern or args.headed:
+    if autostart.enabled():
+        legacy_headed = args.headed and getattr(args, "settings_file", None) is None
+        if args.self_test or args.test_pattern or legacy_headed:
             raise SystemExit(
                 "The installed login service owns normal renderer settings; remove autostart "
                 "before starting a headed or deterministic QA mode"
@@ -230,23 +499,34 @@ def start_managed(args: argparse.Namespace) -> None:
         print(f"Log: {LOG_FILE}")
         return
     ensure_directories()
-    command = [
-        sys.executable,
-        "-m",
-        "retrobridge.cli",
-        "serve",
-        "--managed",
-        "--token-file",
-        str(args.token_file.resolve()),
-        "--listen",
-        args.listen,
-        "--port",
-        str(args.port),
-        "--download-dir",
-        str(args.download_dir.expanduser().resolve()),
-        "--max-download-mb",
-        str(args.max_download_mb),
-    ]
+    if getattr(args, "settings_file", None) is not None:
+        command = [
+            sys.executable,
+            "-m",
+            "retrobridge.cli",
+            "serve",
+            "--managed",
+            "--settings-file",
+            str(args.settings_file.resolve()),
+        ]
+    else:
+        command = [
+            sys.executable,
+            "-m",
+            "retrobridge.cli",
+            "serve",
+            "--managed",
+            "--token-file",
+            str(args.token_file.resolve()),
+            "--listen",
+            args.listen,
+            "--port",
+            str(args.port),
+            "--download-dir",
+            str(args.download_dir.expanduser().resolve()),
+            "--max-download-mb",
+            str(args.max_download_mb),
+        ]
     if args.headed:
         command.append("--headed")
     if args.self_test:
@@ -275,6 +555,7 @@ def start_managed(args: argparse.Namespace) -> None:
         token_file=str(args.token_file.resolve()),
         self_test=args.self_test,
         test_pattern=args.test_pattern,
+        browser_mode=args.browser_mode.value,
     )
     write_state(runtime)
     time.sleep(0.3)
@@ -285,13 +566,20 @@ def start_managed(args: argparse.Namespace) -> None:
     print(f"Log: {LOG_FILE}")
 
 
-def stop_managed() -> None:
+def stop_managed(as_json: bool = False) -> None:
     state = load_state()
     if state is None:
-        print("RetroBridge is not running")
+        if as_json:
+            _emit_json(True, {"running": False, "stopped": False})
+        else:
+            print("RetroBridge is not running")
         return
     graceful = stop_owned_process(state)
-    print("RetroBridge stopped" if graceful else "RetroBridge was force-stopped after timeout")
+    clear_connection_state()
+    if as_json:
+        _emit_json(True, {"running": False, "stopped": True, "graceful": graceful})
+    else:
+        print("RetroBridge stopped" if graceful else "RetroBridge was force-stopped after timeout")
 
 
 def show_status(as_json: bool) -> None:
@@ -312,7 +600,9 @@ def show_status(as_json: bool) -> None:
             if state.self_test
             else "normal"
         ),
+        "browser_mode": state.browser_mode if state else None,
         "autostart_installed": autostart.installed(),
+        "autostart_enabled": autostart.enabled(),
         "autostart_loaded": autostart.loaded(),
         "autostart_executable_available": (
             autostart.executable_is_available() if autostart.installed() else None
@@ -328,7 +618,9 @@ def show_status(as_json: bool) -> None:
         "log_file",
         "download_dir",
         "mode",
+        "browser_mode",
         "autostart_installed",
+        "autostart_enabled",
         "autostart_loaded",
         "autostart_executable_available",
     ):
@@ -347,6 +639,8 @@ def show_logs(lines: int) -> None:
 
 
 def _service_arguments(args: argparse.Namespace) -> list[str]:
+    if getattr(args, "settings_file", None) is not None:
+        return _configured_service_arguments(args.settings_file)
     command = [
         autostart.current_python(),
         "-m",
@@ -409,6 +703,7 @@ def remove_autostart() -> None:
 def show_autostart_status(as_json: bool) -> None:
     payload = {
         "installed": autostart.installed(),
+        "enabled": autostart.enabled(),
         "loaded": autostart.loaded(),
         "executable_available": (
             autostart.executable_is_available() if autostart.installed() else None
@@ -419,6 +714,7 @@ def show_autostart_status(as_json: bool) -> None:
         print(json.dumps(payload, sort_keys=True))
     else:
         print("RetroBridge autostart is installed" if payload["installed"] else "RetroBridge autostart is not installed")
+        print(f"Enabled: {payload['enabled']}")
         print(f"Loaded: {payload['loaded']}")
         if payload["executable_available"] is not None:
             print(f"Executable available: {payload['executable_available']}")
@@ -543,7 +839,44 @@ async def doctor() -> None:
 def main() -> None:
     args = build_parser().parse_args()
     if args.command == "pair":
-        pair(args.token_file, args.guest_ini, args.force, args.server, args.port)
+        pair(
+            args.token_file,
+            args.guest_ini,
+            args.force,
+            args.server,
+            args.port,
+            args.as_json,
+        )
+        return
+    if args.command == "config":
+        try:
+            if args.config_command == "show":
+                show_config(args.settings_file)
+            elif args.config_command == "validate":
+                validate_config(args.json_input)
+            else:
+                apply_config(args.json_input, args.settings_file)
+        except SettingsValidationError as exc:
+            _emit_json(False, errors=exc.issues)
+            raise SystemExit(2) from None
+        except (OSError, UnicodeError) as exc:
+            _emit_json(
+                False,
+                errors=[
+                    {
+                        "code": "settings_invalid",
+                        "field": "settings",
+                        "message": str(exc),
+                    }
+                ],
+            )
+            raise SystemExit(2) from None
+        return
+    if args.command == "browsers" and args.browsers_command == "detect":
+        show_browsers()
+        return
+    if args.command == "diagnostics":
+        show_diagnostics(args.settings_file)
         return
     try:
         ensure_supported_runtime()
@@ -552,11 +885,26 @@ def main() -> None:
     if args.command == "doctor":
         asyncio.run(doctor())
         return
+    if args.command == "browsers":
+        try:
+            sign_in_browser(args.mode)
+        except BrowserSelectionError as exc:
+            _emit_json(
+                False,
+                errors=[{"code": exc.code, "field": "browser.mode", "message": str(exc)}],
+            )
+            raise SystemExit(2) from None
+        return
+    browser_selection = None
+    if args.command in {"serve", "console", "start"} or (
+        args.command == "autostart" and args.autostart_command == "install"
+    ):
+        browser_selection = apply_runtime_settings(args)
     if args.command == "start":
         start_managed(args)
         return
     if args.command == "stop":
-        stop_managed()
+        stop_managed(args.as_json)
         return
     if args.command == "status":
         show_status(args.as_json)
@@ -593,6 +941,9 @@ def main() -> None:
             ChromeSession,
             download_dir=args.download_dir,
             max_download_bytes=args.max_download_mb * 1024 * 1024,
+            browser_mode=args.browser_mode,
+            executable_path=getattr(browser_selection, "executable", None),
+            profile_dir=getattr(browser_selection, "profile_directory", None),
         )
     kwargs = {}
     if factory is not None:
@@ -602,6 +953,13 @@ def main() -> None:
         host=args.listen,
         port=args.port,
         headed=args.headed,
+        connection_status=(
+            lambda listening, connected, peer: write_connection_state(
+                listening=listening, connected=connected, peer=peer
+            )
+            if args.managed
+            else None
+        ),
         **kwargs,
     )
     if args.managed:
@@ -616,6 +974,7 @@ def main() -> None:
                 token_file=str(args.token_file.resolve()),
                 self_test=args.self_test,
                 test_pattern=args.test_pattern,
+                browser_mode=args.browser_mode.value,
             )
         )
     if console_mode:
@@ -633,6 +992,7 @@ def main() -> None:
     finally:
         if args.managed:
             remove_state_if_owned(os.getpid())
+            clear_connection_state()
         if console_mode:
             print("\nRetroBridge stopped. It is safe to close this window.", flush=True)
 
