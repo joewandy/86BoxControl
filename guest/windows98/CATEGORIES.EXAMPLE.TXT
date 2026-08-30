@@ -1,0 +1,6 @@
+# Category|case-insensitive keyword|additional keyword
+Games|game
+Applications|office|word processor|spreadsheet
+Utilities|utility|archive|file manager
+Development|compiler|programming|basic|pascal
+Media|media|audio|video|player

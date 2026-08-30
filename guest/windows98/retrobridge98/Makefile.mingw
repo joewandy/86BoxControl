@@ -1,0 +1,24 @@
+CC = i686-w64-mingw32-gcc
+WINDRES = i686-w64-mingw32-windres
+CFLAGS = -Os -march=i386 -std=gnu89 -Wall -Wextra -Werror \
+	-fno-stack-protector -fno-asynchronous-unwind-tables -fno-ident \
+	-DWINVER=0x0400 -D_WIN32_WINNT=0x0400
+LDFLAGS = -mwindows -static-libgcc -s \
+	-Wl,--major-subsystem-version,4 -Wl,--minor-subsystem-version,0 \
+	-Wl,--major-os-version,4 -Wl,--minor-os-version,0 \
+	-Wl,--disable-dynamicbase -Wl,--disable-nxcompat \
+	-Wl,--disable-reloc-section
+
+.PHONY: all clean
+
+all: retrobridge98.exe
+
+retrobridge98.res.o: retrobridge98.rc resource.h
+	$(WINDRES) --target=pe-i386 -i retrobridge98.rc -o $@
+
+retrobridge98.exe: retrobridge98.c rbproto.c rbproto.h resource.h retrobridge98.res.o
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ retrobridge98.c rbproto.c retrobridge98.res.o \
+		-lwsock32 -lgdi32 -luser32 -lkernel32
+
+clean:
+	rm -f *.exe *.o

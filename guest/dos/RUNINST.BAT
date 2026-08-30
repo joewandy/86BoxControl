@@ -1,0 +1,4 @@
+@ECHO OFF
+A:
+CD \
+INSTALL.EXE

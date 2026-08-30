@@ -1,0 +1,4 @@
+[autorun]
+open=wscript.exe ORGANIZE.VBS
+shell\organize=Organise installed software
+shell\organize\command=wscript.exe ORGANIZE.VBS

@@ -1,0 +1,8 @@
+*.bat text eol=crlf
+*.vbs text eol=crlf
+*.inf text eol=crlf
+*.txt text eol=crlf
+*.cfg text eol=crlf
+*.sh text eol=lf
+*.mjs text eol=lf
+*.md text eol=lf

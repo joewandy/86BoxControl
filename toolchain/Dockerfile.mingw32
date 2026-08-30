@@ -1,0 +1,9 @@
+FROM --platform=linux/amd64 debian:12-slim
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+       gcc-mingw-w64-i686 make \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src/guest/windows98/retrobridge98
+CMD ["make", "-f", "Makefile.mingw"]

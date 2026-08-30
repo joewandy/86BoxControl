@@ -1,0 +1,4 @@
+[autorun]
+open=wscript.exe INSTALL.VBS
+shell\install=Install RetroBridge98
+shell\install\command=wscript.exe INSTALL.VBS

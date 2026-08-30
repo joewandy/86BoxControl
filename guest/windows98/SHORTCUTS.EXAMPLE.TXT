@@ -1,0 +1,3 @@
+# Title|Target|Working directory|Arguments|File that must exist
+Example Application|C:\APP\APP.EXE|C:\APP||C:\APP\APP.EXE
+Example Command Prompt|C:\WINDOWS\COMMAND.COM|C:\APP|/K CD C:\APP|C:\APP\APP.EXE
