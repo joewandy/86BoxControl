@@ -49,11 +49,18 @@ def test_runtime_state_preserves_test_pattern_mode(tmp_path: Path) -> None:
     assert load_state(path) == state
 
 
-def test_process_ownership_requires_retrobridge_serve(monkeypatch) -> None:
+def test_process_ownership_accepts_retrobridge_serve_and_console(monkeypatch) -> None:
     monkeypatch.setattr(
         "retrobridge.runtime.process_command",
         lambda pid: "/venv/bin/python -m retrobridge.cli serve --managed",
     )
     assert process_is_owned(42)
+
+    monkeypatch.setattr(
+        "retrobridge.runtime.process_command",
+        lambda pid: r'"C:\Program Files\RetroBridge98\retrobridge.exe" console',
+    )
+    assert process_is_owned(42)
+
     monkeypatch.setattr("retrobridge.runtime.process_command", lambda pid: "Google Chrome")
     assert not process_is_owned(42)

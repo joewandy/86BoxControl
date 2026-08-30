@@ -48,6 +48,17 @@ async def test_real_chrome_fixture_accepts_text_and_button_click(
     assert await chrome_session._page.locator("#result").text_content() == "Typed: Win98"
 
 
+async def test_headless_scrollbar_is_visible_and_clickable(
+    chrome_session: ChromeSession,
+) -> None:
+    await chrome_session.navigate(SELF_TEST_ORIGIN + "/scroll")
+    assert await chrome_session._page.evaluate("window.scrollY") == 0
+    await chrome_session.pointer(417, 220, 2, 1, 0)
+    await chrome_session.pointer(417, 220, 3, 1, 0)
+    await chrome_session._page.wait_for_function("window.scrollY > 0")
+    assert await chrome_session._page.evaluate("window.scrollY") > 0
+
+
 async def test_popup_target_is_redirected_into_the_current_page(
     chrome_session: ChromeSession,
 ) -> None:

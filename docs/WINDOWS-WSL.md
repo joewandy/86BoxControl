@@ -11,7 +11,9 @@ This repository uses a split development/runtime layout on Joe's Windows PC.
 - The configured VM directory is `C:\Users\joewa\86Box\Virtual Machines` and
   the current machine is `My PC`.
 - Native RetroBridge state, its Python 3.12 environment, pairing files, logs,
-  and login task live below `%LOCALAPPDATA%\RetroBridge98`.
+  generated application icon, and login task live below
+  `%LOCALAPPDATA%\RetroBridge98`. Its visible launcher is installed per-user at
+  `%APPDATA%\Microsoft\Windows\Start Menu\Programs\RetroBridge98`.
 - Host-side downloads live at `%USERPROFILE%\Downloads\RetroBridge98`.
 
 Do not create a second development checkout under `C:\` or `/mnt/c`. Do not
@@ -62,3 +64,7 @@ INI embedded in the installation ISO.
 Keep the loopback listener and other least-privilege defaults.
 Do not widen the listener or add a firewall exception merely to work around a
 guest configuration problem.
+
+The Start Menu launcher runs `retrobridge console` only when the user selects
+it. Creating or updating that shortcut must not install, enable, or start the
+optional Task Scheduler login service.

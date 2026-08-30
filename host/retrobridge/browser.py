@@ -193,6 +193,11 @@ class ChromeSession:
             "accept_downloads": self.download_dir is not None,
             "service_workers": "block",
         }
+        if not self.headed:
+            # Playwright hides scrollbars in headless Chromium by default. The
+            # guest streams only the rendered viewport, so keep Chromium's
+            # native scrollbar visible and draggable inside that frame.
+            launch_options["ignore_default_args"] = ["--hide-scrollbars"]
         if self.headed:
             # Native headed diagnostics use the user's stable Chrome. Normal
             # managed operation uses Playwright's isolated headless Chromium.

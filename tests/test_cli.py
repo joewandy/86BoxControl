@@ -66,6 +66,30 @@ def test_managed_start_can_enable_deterministic_self_test_mode() -> None:
     assert args.self_test
 
 
+def test_console_mode_is_visible_managed_normal_mode() -> None:
+    args = build_parser().parse_args(["console"])
+    assert args.managed
+    assert not args.self_test
+    assert not args.test_pattern
+    assert args.listen == "127.0.0.1"
+    assert args.port == 9866
+
+
+def test_console_banner_explains_endpoints_paths_and_shutdown(tmp_path: Path) -> None:
+    banner = cli.console_banner(
+        "127.0.0.1",
+        9866,
+        tmp_path / "Downloads",
+        tmp_path / "retrobridge.log",
+    )
+    assert "RETROBRIDGE 98" in banner
+    assert "127.0.0.1:9866" in banner
+    assert "10.0.2.2:9866" in banner
+    assert str((tmp_path / "Downloads").resolve()) in banner
+    assert str(tmp_path / "retrobridge.log") in banner
+    assert "Ctrl+C" in banner
+
+
 def test_managed_start_can_enable_framebuffer_test_pattern() -> None:
     args = build_parser().parse_args(["start", "--test-pattern"])
     assert args.command == "start"

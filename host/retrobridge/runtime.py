@@ -73,7 +73,13 @@ def process_command(pid: int) -> str:
 
 def process_is_owned(pid: int) -> bool:
     command = process_command(pid)
-    return bool(command) and "retrobridge" in command and " serve" in command
+    if not command:
+        return False
+
+    normalized = command.casefold()
+    return "retrobridge" in normalized and (
+        " serve" in normalized or " console" in normalized
+    )
 
 
 def process_is_running(pid: int) -> bool:

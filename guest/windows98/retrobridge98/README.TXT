@@ -15,7 +15,8 @@ Windows has locked the running program file.
 
 Type a public web address and press Enter. Press F6 to select the address,
 F5 to reload, Esc to stop, Ctrl+F to find text, and Alt+Left or Alt+Right to
-move through history. The menus also provide Home, Favorites, local clipboard
+move through history. Use the rendered scrollbar, mouse wheel, Page Up, or
+Page Down to move through long pages. The menus also provide Home, Favorites, local clipboard
 commands, a host-side download inbox, and connection diagnostics.
 
 Favorites can be opened, renamed, deleted, and reordered from Manage Favorites.

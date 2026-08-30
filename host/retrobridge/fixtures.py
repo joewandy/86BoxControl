@@ -20,19 +20,22 @@ INDEX_HTML = b"""<!doctype html>
 <meta charset="windows-1252">
 <title>RetroBridge QA Home</title>
 <style>
-  body { margin: 0; font: 16px Arial, sans-serif; background: #f2f2f2; }
+  body { margin: 0; min-height: 1600px; font: 16px Arial, sans-serif; background: #f2f2f2; }
   #normal { position: absolute; left: 20px; top: 50px; width: 180px; height: 34px; }
   #popup { position: absolute; left: 220px; top: 50px; width: 180px; height: 34px; }
+  #scroll { position: absolute; left: 420px; top: 50px; width: 180px; height: 34px; }
   #name { position: absolute; left: 20px; top: 105px; width: 180px; height: 28px; }
   #submit { position: absolute; left: 220px; top: 105px; width: 100px; height: 32px; }
   #download { position: absolute; left: 20px; top: 155px; }
   #result { position: absolute; left: 220px; top: 155px; }
   #confirm { position: absolute; left: 20px; top: 205px; width: 170px; height: 32px; }
   #prompt { position: absolute; left: 220px; top: 205px; width: 170px; height: 32px; }
+  #bottom { position: absolute; left: 20px; top: 1520px; }
 </style>
 <h1 style="font-size:20px;margin:10px 20px">RetroBridge deterministic QA</h1>
 <a id="normal" href="/next">Open normal link</a>
 <a id="popup" href="/popup" target="_blank">Open popup link</a>
+<a id="scroll" href="/scroll">Open scroll fixture</a>
 <input id="name" aria-label="Name" autocomplete="off">
 <button id="submit">Submit</button>
 <a id="download" href="data:application/octet-stream,RetroBridge98%20deterministic%20download%0D%0A"
@@ -40,6 +43,7 @@ INDEX_HTML = b"""<!doctype html>
 <strong id="result">Waiting</strong>
 <button id="confirm">Open confirm dialog</button>
 <button id="prompt">Open prompt dialog</button>
+<strong id="bottom">Bottom of QA page</strong>
 <script>
 document.querySelector('#submit').onclick = () => {
   const value = document.querySelector('#name').value;
@@ -104,6 +108,19 @@ setTimeout(() => {
 </body>
 """
 
+SCROLL_HTML = b"""<!doctype html>
+<meta charset="windows-1252">
+<title>RetroBridge QA Scroll</title>
+<style>
+  html { overflow-y: scroll; }
+  body { margin: 0; min-height: 1600px; font: 18px Arial, sans-serif; background: #f2f2f2; }
+  header { padding: 20px; color: white; background: #24527a; }
+  footer { position: absolute; top: 1500px; padding: 20px; }
+</style>
+<header>Top of scrolling fixture</header>
+<footer>Bottom of scrolling fixture</footer>
+"""
+
 
 def fixture_for_url(url: str) -> FixtureResponse | None:
     parsed = urlsplit(url)
@@ -120,6 +137,8 @@ def fixture_for_url(url: str) -> FixtureResponse | None:
         return FixtureResponse(200, "text/html; charset=windows-1252", DIALOG_HTML)
     if path == "/prompt":
         return FixtureResponse(200, "text/html; charset=windows-1252", PROMPT_HTML)
+    if path == "/scroll":
+        return FixtureResponse(200, "text/html; charset=windows-1252", SCROLL_HTML)
     if path == "/download.bin":
         payload = b"RetroBridge98 deterministic download\r\n"
         return FixtureResponse(

@@ -13,6 +13,7 @@ import secrets
 import signal
 import subprocess
 import sys
+import textwrap
 import time
 from functools import partial
 from pathlib import Path
@@ -24,6 +25,7 @@ from .runtime import (
     DOWNLOAD_DIRECTORY,
     GUEST_INI_FILE,
     LOG_FILE,
+    STATE_FILE,
     TOKEN_FILE,
     RuntimeState,
     ensure_directories,
@@ -128,6 +130,25 @@ def build_parser() -> argparse.ArgumentParser:
         help="enable authenticated deterministic browser fixtures",
     )
     serve_parser.add_argument("--managed", action="store_true", help=argparse.SUPPRESS)
+
+    console_parser = subparsers.add_parser(
+        "console", help="run the managed renderer in a friendly visible console"
+    )
+    console_parser.add_argument("--token-file", type=Path, default=TOKEN_FILE)
+    console_parser.add_argument("--listen", default="127.0.0.1")
+    console_parser.add_argument("--port", type=int, default=9866)
+    console_parser.add_argument("--headed", action="store_true")
+    console_parser.add_argument(
+        "--download-dir",
+        type=Path,
+        default=DOWNLOAD_DIRECTORY,
+    )
+    console_parser.add_argument("--max-download-mb", type=int, default=100)
+    console_parser.set_defaults(
+        managed=True,
+        self_test=False,
+        test_pattern=False,
+    )
     subparsers.add_parser("doctor", help="launch isolated Chrome and capture one frame")
 
     start_parser = subparsers.add_parser("start", help="start one managed renderer")
@@ -404,7 +425,7 @@ def show_autostart_status(as_json: bool) -> None:
         print(f"Login service: {payload['location']}")
 
 
-def configure_logging(managed: bool) -> None:
+def configure_logging(managed: bool, *, echo_to_console: bool = False) -> None:
     formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
     if not managed:
         logging.basicConfig(level=logging.INFO, format=formatter._fmt)
@@ -420,7 +441,57 @@ def configure_logging(managed: bool) -> None:
     root = logging.getLogger()
     root.handlers.clear()
     root.addHandler(handler)
+    if echo_to_console:
+        console_handler = logging.StreamHandler(sys.stdout)
+        console_handler.setFormatter(formatter)
+        root.addHandler(console_handler)
     root.setLevel(logging.INFO)
+
+
+def console_banner(
+    host: str,
+    port: int,
+    download_directory: Path,
+    log_file: Path = LOG_FILE,
+) -> str:
+    guest_endpoint = (
+        f"10.0.2.2:{port} (from the 86Box guest)"
+        if host == "127.0.0.1"
+        else f"{host}:{port}"
+    )
+    return textwrap.dedent(
+        f"""
+             ______________________________________
+            /  RETROBRIDGE 98                     /|
+           /______________________________________/ |
+           |  [ modern web ] === [ Windows 98 ]  | |
+           |______________________________________|/
+
+           Ready to bridge the Windows 98 browser.
+
+           Listening : {host}:{port}
+           Guest     : {guest_endpoint}
+           Downloads : {download_directory.expanduser().resolve()}
+           Log       : {log_file}
+
+           Waiting for the guest to connect...
+           Press Ctrl+C to stop RetroBridge safely.
+        """
+    ).strip()
+
+
+def prepare_console_launch() -> None:
+    state = load_state()
+    if state is None:
+        return
+    if process_is_running(state.pid) and process_is_owned(state.pid):
+        raise SystemExit(f"RetroBridge is already running as PID {state.pid}")
+    if process_is_running(state.pid):
+        raise SystemExit(
+            f"RetroBridge state refers to active unrelated PID {state.pid}; "
+            f"remove stale state only after checking {STATE_FILE}"
+        )
+    remove_state_if_owned(state.pid)
 
 
 async def run_managed_server(server: RetroBridgeServer) -> None:
@@ -501,7 +572,10 @@ def main() -> None:
         else:
             show_autostart_status(args.as_json)
         return
-    configure_logging(args.managed)
+    console_mode = args.command == "console"
+    if console_mode:
+        prepare_console_launch()
+    configure_logging(args.managed, echo_to_console=console_mode)
     if args.test_pattern and args.self_test:
         raise SystemExit("--test-pattern and --self-test cannot be combined")
     if args.max_download_mb <= 0:
@@ -544,6 +618,11 @@ def main() -> None:
                 test_pattern=args.test_pattern,
             )
         )
+    if console_mode:
+        print(
+            console_banner(args.listen, args.port, args.download_dir),
+            flush=True,
+        )
     try:
         if args.managed:
             asyncio.run(run_managed_server(server))
@@ -554,6 +633,8 @@ def main() -> None:
     finally:
         if args.managed:
             remove_state_if_owned(os.getpid())
+        if console_mode:
+            print("\nRetroBridge stopped. It is safe to close this window.", flush=True)
 
 
 if __name__ == "__main__":

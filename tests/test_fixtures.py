@@ -6,6 +6,7 @@ def test_fixture_pages_are_available_only_on_the_qa_origin() -> None:
     assert home is not None
     assert home.status == 200
     assert b"Open normal link" in home.body
+    assert b'href="/scroll"' in home.body
     assert fixture_for_url("https://example.com/") is None
 
 

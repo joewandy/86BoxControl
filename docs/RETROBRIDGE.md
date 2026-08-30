@@ -126,6 +126,12 @@ $retrobridge = "$env:LOCALAPPDATA\RetroBridge98\venv\Scripts\retrobridge.exe"
 & $retrobridge stop
 ```
 
+The Windows installer also creates **Start > RetroBridge98 > RetroBridge98**.
+That shortcut opens a persistent console with the listener, guest endpoint,
+download directory, rotating log location, and live connection activity. Stop
+it with `Ctrl+C`, then close the console. Installing the shortcut does not
+enable the optional login service or otherwise start RetroBridge automatically.
+
 On macOS, run the same commands from the native checkout:
 
 ```sh
@@ -162,6 +168,10 @@ QA modes; temporarily remove autostart before running those modes.
 reach the default loopback listener, diagnose the VM networking first. The
 last-resort `--listen 0.0.0.0` exposes the authenticated listener to other
 interfaces and should be used only with an explicit network reason.
+
+Normal headless rendering keeps Chromium's native vertical scrollbar visible
+inside the streamed `640x480` viewport. It can be dragged or clicked from the
+Windows 98 client; the mouse wheel and Page Up/Page Down remain available too.
 
 In Windows 98, install from the ISO with `INSTALL.VBS` and launch
 `C:\RETROBRIDGE\RETROBRIDGE98.EXE` or its installed shortcut.
