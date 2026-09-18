@@ -1,7 +1,7 @@
 [project]
 name = "retrobridge98"
 version = "0.3.0"
-description = "A native Windows 98 client for a modern browser rendered on Windows or macOS"
+description = "A native Windows 98 client for a modern browser rendered on Windows, macOS, or Linux"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.12,<3.13"
@@ -9,6 +9,7 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: MacOS",
   "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3.12",
 ]
 dependencies = [

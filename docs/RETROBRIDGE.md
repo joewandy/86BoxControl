@@ -1,7 +1,7 @@
 # RetroBridge98
 
 RetroBridge98 is a native Windows 98 browser window backed by a controlled
-modern browser session on a native Windows or macOS host. The guest sends
+modern browser session on a native Windows, macOS, or Linux host. The guest sends
 addresses and input over one authenticated TCP connection; the host renders the
 page and streams 640 x 480 RGB565/LZ4 frames back. This is our own client and
 service. WRP, Browservice,
@@ -57,7 +57,7 @@ the visible host browser. Never enter sensitive credentials through Windows 98.
   link-local, metadata, and other non-public addresses, including after DNS
   resolution. `chrome://`, `file://`, and similar internal schemes are blocked
   or returned to the safe Home page.
-- On macOS, runtime state and pairing secrets are mode `0600` and their parent
+- On macOS and Linux, runtime state and pairing secrets are mode `0600` and their parent
   directories are mode `0700`. On Windows, inheritance is removed and access
   is restricted to the current user, SYSTEM, and Administrators. Download
   history is private and bounded to 50 records.
@@ -74,6 +74,9 @@ inbound LAN traffic, but it is not a substitute for removing guest Internet
 routing.
 
 ## Windows development and runtime boundary
+
+For a native Linux host and VM migration, see [LINUX.md](LINUX.md). Native Linux
+runs its own renderer; WSL remains a build environment for Windows-hosted VMs.
 
 On a Windows development PC, the canonical source checkout, Git operations,
 Linux Python environment, dependency lock, tests, Docker/MinGW build, and ISO
@@ -175,7 +178,8 @@ uv run retrobridge stop
 `start` refuses to create a second managed instance. `stop` terminates the
 active guest session and only the browser descendants owned by that session. On
 Windows, state and logs are stored under `%LOCALAPPDATA%\RetroBridge98`; on macOS
-they retain their existing Library locations. Logs rotate at 5 MiB with three
+they retain their existing Library locations. On Linux they live below
+`${XDG_STATE_HOME:-~/.local/state}/RetroBridge98`. Logs rotate at 5 MiB with three
 backups.
 
 Fresh Windows installations default to no automatic startup. Opt in through the

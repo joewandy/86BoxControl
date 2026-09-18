@@ -4,6 +4,11 @@ These instructions apply to the whole repository.
 
 ## Host-specific execution
 
+- On native Linux, use `docs/LINUX.md`. The Linux checkout is native, not WSL;
+  build and run Linux dependencies locally. Keep migrated VM disks and pairing
+  secrets outside Git, preserve the Windows originals, and retain WSL detection
+  so Windows-hosted VMs still use a native Windows renderer.
+
 - On this Windows PC, the canonical checkout is
   `/home/joewandy/Work/git/86BoxControl` in WSL Ubuntu. Do not create or use a
   development copy under `C:\` or `/mnt/c`.

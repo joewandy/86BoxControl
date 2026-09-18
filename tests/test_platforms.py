@@ -30,9 +30,31 @@ def test_macos_runtime_paths_remain_compatible() -> None:
     assert paths.log_directory == Path("/Users/joe/Library/Logs/RetroBridge98")
 
 
-def test_live_linux_runtime_is_rejected() -> None:
-    with pytest.raises(RuntimeError, match="WSL/Linux only for source development"):
-        ensure_supported_runtime("linux")
+@pytest.mark.parametrize(
+    ("environ", "kernel_release"),
+    [
+        ({}, "6.6.87.2-microsoft-standard-WSL2"),
+        ({}, "4.4.0-Microsoft"),
+        ({"WSL_DISTRO_NAME": "Ubuntu"}, "6.8.0"),
+        ({"WSL_INTEROP": "/run/WSL/123_interop"}, "6.8.0"),
+    ],
+)
+def test_live_wsl_runtime_is_rejected(environ, kernel_release) -> None:
+    with pytest.raises(RuntimeError, match="WSL only for source development"):
+        ensure_supported_runtime("linux", environ=environ, kernel_release=kernel_release)
+
+
+def test_native_linux_runtime_is_accepted() -> None:
+    ensure_supported_runtime("linux", environ={}, kernel_release="6.17.0-generic")
+
+
+def test_linux_paths_use_xdg_state_and_native_downloads() -> None:
+    paths = runtime_paths(
+        platform_name="linux", environ={"XDG_STATE_HOME": "/state"},
+        home=Path("/home/joe"),
+    )
+    assert paths.application_support == Path("/state/RetroBridge98")
+    assert paths.download_directory == Path("/home/joe/Downloads/RetroBridge98")
 
 
 def test_native_runtimes_are_accepted() -> None:

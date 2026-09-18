@@ -53,6 +53,9 @@ async def test_headless_scrollbar_is_visible_and_clickable(
 ) -> None:
     await chrome_session.navigate(SELF_TEST_ORIGIN + "/scroll")
     assert await chrome_session._page.evaluate("window.scrollY") == 0
+    # DOMContentLoaded can precede the compositor's scrollbar hit-test region.
+    # Wait for a rendered frame before injecting a native scrollbar click.
+    await chrome_session._page.screenshot()
     await chrome_session.pointer(417, 220, 2, 1, 0)
     await chrome_session.pointer(417, 220, 3, 1, 0)
     await chrome_session._page.wait_for_function("window.scrollY > 0")

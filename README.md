@@ -4,7 +4,7 @@
 organizing, and validating DOS and Windows 98 software in an
 [86Box](https://86box.net/) virtual machine. It also contains RetroBridge98, a
 native Windows 98 browser whose pages are rendered by an isolated modern browser
-process on a native Windows or macOS host.
+process on a native Windows, macOS, or Linux host.
 
 This is not an 86Box fork or a prebuilt virtual machine. The repository contains
 source code, automation, templates, and documentation only. It does not include
@@ -132,6 +132,10 @@ documentation examples. Start the renderer with the same port. Existing
 pairing files are not overwritten unless `--force` is supplied.
 
 ### Run the native renderer
+
+For native Linux installation and migration, see [docs/LINUX.md](docs/LINUX.md).
+Linux uses the CLI with Private Chromium; the Windows WPF settings application
+and Windows/macOS login-service installers are not used.
 
 ```powershell
 & $retrobridge start

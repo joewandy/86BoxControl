@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import os
+import platform
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -93,11 +94,22 @@ def runtime_paths(
 PATHS = runtime_paths()
 
 
-def ensure_supported_runtime(platform_name: str | None = None) -> None:
-    if host_kind(platform_name) == "linux":
+def ensure_supported_runtime(
+    platform_name: str | None = None,
+    *,
+    environ: Mapping[str, str] | None = None,
+    kernel_release: str | None = None,
+) -> None:
+    environ = os.environ if environ is None else environ
+    kernel_release = platform.release() if kernel_release is None else kernel_release
+    if host_kind(platform_name) == "linux" and (
+        "microsoft" in kernel_release.casefold()
+        or environ.get("WSL_DISTRO_NAME")
+        or environ.get("WSL_INTEROP")
+    ):
         raise RuntimeError(
-            "The live RetroBridge renderer must run natively on Windows or macOS. "
-            "Use WSL/Linux only for source development, tests, and guest-media builds."
+            "The live RetroBridge renderer must run natively on Windows, macOS, or Linux. "
+            "Use WSL only for source development, tests, and guest-media builds."
         )
 
 
